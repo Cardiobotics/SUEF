@@ -40,15 +40,6 @@ class Model_3DCNN(nn.Module):
                                padding=filter_padding, bias=True)
         self.bn1 = nn.BatchNorm3d(num_filters_layer1)
 
-        self.out_size_1_l = (input_length + 2 * filter_padding - (kernel_size_layer1[0] - 1) - 1) / filter_stride
-        self.out_size_1_h = (input_height + 2 * filter_padding - (kernel_size_layer1[1] - 1) - 1) / filter_stride
-        self.out_size_1_w = (input_width + 2 * filter_padding - (kernel_size_layer1[2] - 1) - 1) / filter_stride
-        self.out_size_1 = (self.out_size_1_l, self.out_size_1_h, self.out_size_1_w)
-
-        self.out_size_1_pooled_l = (self.out_size_1_l + 2 * pool_padding - (pool_size[0] - 1) - 1) / pool_stride + 1
-        self.out_size_1_pooled_h = (self.out_size_1_h + 2 * pool_padding - (pool_size[1] - 1) - 1) / pool_stride + 1
-        self.out_size_1_pooled_w = (self.out_size_1_w + 2 * pool_padding - (pool_size[2] - 1) - 1) / pool_stride + 1
-
         # Layer 2
         self.conv2 = nn.Conv3d(num_filters_layer1, num_filters_layer2, kernel_size=kernel_size_layer2, stride=filter_stride,
                                padding=filter_padding, bias=True)
@@ -68,7 +59,7 @@ class Model_3DCNN(nn.Module):
         self.bn5 = nn.BatchNorm3d(num_filters_layer5)
 
         # Final classification layer
-        self.fc = nn.Linear(6400, 1)
+        self.aap = nn.AdaptiveAvgPool3d(output_size=(1, 1, 1))
 
     def forward(self, x):
         # Layer 1

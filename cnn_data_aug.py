@@ -1,5 +1,7 @@
 import numpy as np
-
+from skimage.util import random_noise
+from skimage.util import img_as_float32
+from skimage.color import rgb2gray
 
 class DataAugmentations:
     def __init__(self, flag_dict):
@@ -8,24 +10,27 @@ class DataAugmentations:
         self.flag_dict = flag_dict
 
     def transform(self, img):
-        t_img = img
-        if self.flag_dict['gray_scale']:
-            t_img = self.t_rgb2gray(t_img)
-        if self.flag_dict['brightness']:
-            t_img = self.t_brightness(t_img)
-
-    def t_brighness(self, img):
+        if self.flag_dict['grayscale']:
+            img = self.t_grayscale(img)
+        if self.flag_dict['float']:
+            img = self.t_convert_to_float(img)
+        if self.flag_dict['noise']:
+            img = self.t_gaussian_noise(img)
+        if self.flag_dict['speckle']:
+            img = self.t_speckle(img)
         return img
 
-    def t_rgb2gray(img):
-        '''
-        Converts a 3-channel RGB image to grayscale.
-        :param img: image data in array form (np.arr or python arr)
-        :return: The greyscale img in numpy.array form.
-        '''
-        # Luminence numbers for converting RGB to grayscale
-        b = [0.2989, 0.5870, 0.1140]
-        gray_img = np.dot(img[..., :3], b)
-        gray_img = np.expand_dims(gray_img, axis=0)
-        return gray_img.astype(np.uint8)
+    def t_gaussian_noise(self, img):
+        return random_noise(img, mode='gaussian', var=0.1)
 
+    def t_grayscale(self, img):
+        return rgb2gray(img)
+
+    def t_convert_to_float(self, img):
+        return img_as_float32(img)
+
+    def t_salt_and_pepper(self, img):
+        return random_noise(img, mode='s&p')
+
+    def t_speckle(self, img):
+        return random_noise(img, mode='speckle', var=0.1)
