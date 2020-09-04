@@ -9,6 +9,8 @@ import pandas as pd
 import pp_transforms
 import os
 from tqdm import tqdm
+import re
+
 
 def main():
 
@@ -21,8 +23,19 @@ def main():
                                                                    'if you have multiple views you want to process')
     parser.add_argument('--vtarget_sep', default=';', help='The separator for the view target csv file. Default is ;')
     parser.add_argument('--obfolder', help='Output base folder. Folder structure will be generated with this as root')
+    parser.add_argument('--img_size', type=str, default='300,300,300', help=' Image target size in H*W*L. Accepted formats: '
+                                                                            'H*W*L, HxWxL, HXWXL, H,W,L. '
+                                                                            'Example: 350x450x20')
 
     args = parser.parse_args()
+
+    re_img_size = re.search('([0-9]+)[xX*,]([0-9]+)[xX*,]([0-9]+)', args.img_size)
+
+    img_h = re_img_size[0]
+    img_w = re_img_size[1]
+    img_l = re_img_size[2]
+
+    img_size = (img_h, img_w, img_l)
 
     pd_vl = load_viewtargets(args.vtarget, args.vtarget_sep)
 

@@ -10,7 +10,7 @@ class Model_3DCNN(nn.Module):
     Takes input of shape: (batch_size, channels, length, height, width)
     '''
 
-    def __init__(self, input_width, input_height, input_length, input_channels, batch_size):
+    def __init__(self, input_height, input_width, input_length, input_channels, batch_size):
         super(Model_3DCNN, self).__init__()
 
         num_filters_layer1 = 32
