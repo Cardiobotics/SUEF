@@ -23,7 +23,7 @@ class NPYDataset(torch.utils.data.Dataset):
 
         self.targets = pd.read_csv(os.path.abspath(target_file), sep=target_file_sep)
         self.img_dict = self.load_filenames( os.path.abspath(image_path), uid_len)
-        self.transform = cnn_data_aug.NPDataAugmentations(transform_flags)
+        self.transform = cnn_data_aug.DataAugmentations(transform_flags)
 
 
     def __len__(self):
