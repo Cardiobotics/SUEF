@@ -4,16 +4,17 @@ import pydicom
 import cnn_data_aug
 import os
 import random
+import config
 
 
 class DCMDataset(torch.utils.data.Dataset):
-    def __init__(self, view_file, target_file, allowed_views, file_sep=';', transform_flags={}):
+    def __init__(self, view_file, target_file, t_settings, file_sep=';'):
         super(DCMDataset).__init__()
 
         self.targets = pd.read_csv(os.path.abspath(target_file), sep=file_sep)
         view_files = pd.read_csv(os.path.abspath(view_file), sep=file_sep)
-        self.files = view_files[view_files['prediction'].isin(allowed_views)].copy()
-        self.data_aug = cnn_data_aug.DataAugmentations(transform_flags)
+        self.files = view_files[view_files['prediction'].isin(config.allowed_views)].copy()
+        self.data_aug = cnn_data_aug.DataAugmentations(t_settings)
 
     def __len__(self):
         return len(self.targets)
