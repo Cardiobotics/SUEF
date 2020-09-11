@@ -65,6 +65,11 @@ def train_and_validate(model, args):
     mem = mem_params + mem_buffs  # in bytes
     print('Model memory size: {}'.format(mem))
 
+    # Initialize scheduler
+    use_scheduler = True
+    if use_scheduler:
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+
     # Begin training
 
     for i in range(args.epochs):
@@ -95,10 +100,13 @@ def train_and_validate(model, args):
             outputs_t = model(inputs_t)
             loss_t = criterion(outputs_t, targets_t)
 
-            # Update metrics
-            r2_t = r2_score(targets_t.cpu().detach(), outputs_t.cpu().detach())
-            r2_values_t.update(r2_t)
-            losses_t.update(loss_t)
+            try:
+                # Update metrics
+                r2_t = r2_score(targets_t.cpu().detach(), outputs_t.cpu().detach())
+                r2_values_t.update(r2_t)
+                losses_t.update(loss_t)
+            except Exception as e:
+                print("R2 calculation failed for Outputs: {} \n Targets: {} \n with Exception: {}".format(outputs_t, targets_t, e))
 
             # Backwards pass and step
             optimizer.zero_grad()
@@ -122,6 +130,7 @@ def train_and_validate(model, args):
                       .format(j+1, len(train_data_loader), i + 1, batch_time=batch_time_t, data_time=data_time_t,
                               loss=losses_t, r2=r2_values_t))
 
+
             # Reset end timer
             end_time_t = time.time()
         
@@ -132,7 +141,11 @@ def train_and_validate(model, args):
               'Training Loss: {loss.avg:.4f} \t '
               'Training R2 score: {r2.avg:.3f} \t'
               .format(i+1, batch_time=batch_time_t, data_time=data_time_t, loss=losses_t, r2=r2_values_t))
+        print('Example targets: {} \n Example outputs: {}'.format(targets_t, outputs_t))
         end_time_v = time.time()
+        if use_scheduler:
+            scheduler.step()
+
 
         # Validation
         model.eval()
@@ -175,3 +188,19 @@ def train_and_validate(model, args):
               'Validation Loss: {loss.avg:.4f} \t '
               'Validation R2 score: {r2.avg:.3f} \t'
               .format(i+1, batch_time=batch_time_v, data_time=data_time_v, loss=losses_v, r2=r2_values_v))
+
+        save_checkpoint(args.save_path, i+1, model, optimizer, scheduler)
+
+
+def save_checkpoint(save_file_path, epoch, model, optimizer, scheduler):
+    if hasattr(model, 'module'):
+        model_state_dict = model.module.state_dict()
+    else:
+        model_state_dict = model.state_dict()
+    save_states = {
+        'epoch': epoch,
+        'state_dict': model_state_dict,
+        'optimizer': optimizer.state_dict(),
+        'scheduler': scheduler.state_dict()
+    }
+    torch.save(save_states, save_file_path)
