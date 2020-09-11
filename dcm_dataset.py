@@ -1,5 +1,6 @@
 import torch
 import pandas as pd
+import numpy as np
 import pydicom
 import cnn_data_aug
 import os
@@ -12,6 +13,10 @@ class DCMDataset(torch.utils.data.Dataset):
         super(DCMDataset).__init__()
 
         self.targets = pd.read_csv(os.path.abspath(target_file), sep=file_sep)
+        if t_settings['normalize_output']:
+            self.min_t = self.targets['target'].min()
+            self.max_t = self.targets['target'].max()
+            self.targets['target'] = self.targets['target'].apply(lambda x: (x - self.min_t) / (self.max_t - self.min_t))
         view_files = pd.read_csv(os.path.abspath(view_file), sep=file_sep)
         self.files = view_files[view_files['prediction'].isin(config.allowed_views)].copy()
         self.data_aug = cnn_data_aug.DataAugmentations(t_settings)
@@ -21,18 +26,19 @@ class DCMDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         uid = self.targets.iloc[index]['us_id']
-        target = self.targets.iloc[index]['target']
+        target = self.targets.iloc[index]['target'].astype(np.float32)
         try:
             uid_files = self.files[self.files['us_id'] == uid]
             if len(uid_files) < 1:
                 raise ValueError("No matching views for that examination")
             row = uid_files.iloc[random.randint(0, len(uid_files) - 1)]
-            dcm_data = pydicom.read_file(os.path.abspath(row['file']))
+            file = row['file']
+            dcm_data = pydicom.read_file(file)
             img = dcm_data.pixel_array
             if not dcm_data.InstanceNumber == row['instance_id'] and dcm_data.PatientID == uid:
                 raise ValueError("InstanceID or PatientID not matching")
             if self.data_aug:
-                img = self.data_aug.transform(img)
+                img = self.data_aug.transform(dcm_data)
         except ValueError as e:
             print("Target UID: {}, Files: {}, Failed with exception: {} ".format(uid, uid_files, e))
         except Exception as e:

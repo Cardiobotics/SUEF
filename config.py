@@ -1,30 +1,38 @@
 
 train_transforms = {
     'grayscale': True,
-    'float': True,
+    'normalize_input': True,
+    'normalize_output': False,
     'noise': False,
     'speckle': False,
     'rescale_fps': True,
-    'resize_frames': False,
+    'resize_frames': True,
     'crop': 3,
-    'target_height': 300,
-    'target_width': 300,
-    'target_length': 10,
-    'target_fps': 12
+    'pad': 2,
+    'org_height': 484,
+    'org_width': 636,
+    'target_height': int(0.4*484),
+    'target_width': int(0.4*636),
+    'target_length': 30,
+    'target_fps': 25
 }
 
 val_transforms = {
     'grayscale': True,
-    'float': True,
+    'normalize_input': True,
+    'normalize_output': False,
     'noise': False,
     'speckle': False,
     'rescale_fps': True,
-    'resize_frames': False,
+    'resize_frames': True,
     'crop': 3,
-    'target_height': 300,
-    'target_width': 300,
-    'target_length': 10,
-    'target_fps': 12
+    'pad': 2,
+    'org_height': 484,
+    'org_width': 636,
+    'target_height': int(0.4*484),
+    'target_width': int(0.4*636),
+    'target_length': 30,
+    'target_fps': 25
 }
 
-allowed_views = [0, 2, 4, 20]
+allowed_views = [0, 2, 4, 12, 20]
