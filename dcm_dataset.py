@@ -2,7 +2,7 @@ import torch
 import pandas as pd
 import numpy as np
 import pydicom
-import cnn_data_aug
+import data_transforms
 import os
 import random
 import config
@@ -19,7 +19,7 @@ class DCMDataset(torch.utils.data.Dataset):
             self.targets['target'] = self.targets['target'].apply(lambda x: (x - self.min_t) / (self.max_t - self.min_t))
         view_files = pd.read_csv(os.path.abspath(view_file), sep=file_sep)
         self.files = view_files[view_files['prediction'].isin(config.allowed_views)].copy()
-        self.data_aug = cnn_data_aug.DataAugmentations(t_settings)
+        self.data_aug = data_transforms.DataAugmentations(t_settings)
 
     def __len__(self):
         return len(self.targets)

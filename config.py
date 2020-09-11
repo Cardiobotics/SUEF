@@ -36,3 +36,13 @@ val_transforms = {
 }
 
 allowed_views = [0, 2, 4, 12, 20]
+
+resnext_settings = {
+    'model_depth': 101,
+    'cardinality': 32,
+    'n_classes': 1,
+    'n_input_channels': 1,
+    'shortcut_type': 'B',
+    'conv1_t_size': 7,
+    'conv1_t_stride': 1
+}

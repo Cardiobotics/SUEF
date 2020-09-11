@@ -1,16 +1,15 @@
-import cnn_model
 import torch.nn as nn
 import torch
 import torch.nn.functional as F
 
 
-class CNN_Ensemble(nn.Module):
+class CNNEnsemble(nn.Module):
     '''
     Ensemble for combining multiple models.
     If the models are already trained, all layers except the last fc_linear must be frozen.
     '''
     def __init__(self, model1, model2, model3, model4, model5):
-        super(CNN_Ensemble, self).__init__()
+        super(CNNEnsemble, self).__init__()
 
         self.view_model_1 = model1
         self.view_model_2 = model2

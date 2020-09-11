@@ -1,6 +1,3 @@
-import argparse
-import cnn_model
-import cnn_model_parallel
 import dcm_dataset
 import torch
 import torch.nn as nn
@@ -9,32 +6,11 @@ from utils import AverageMeter
 from sklearn.metrics import r2_score
 import time
 import config
-from apex import amp, optimizers
+from apex import amp
 import os
 
 
-def main():
-
-    parser = argparse.ArgumentParser('Train a CNN model')
-    parser.add_argument('--train_views', help='The file containing training file paths and their view labels')
-    parser.add_argument('--train_targets', help='The path to the csv file containing targets for training data.')
-    parser.add_argument('--train_target_sep', default=';', help='The separator for the train target csv file. Default is ;')
-    parser.add_argument('--val_views', help='The file containing validation file paths and their view labels')
-    parser.add_argument('--val_targets', help='The path to the csv file containing targets for validation data.')
-    parser.add_argument('--val_target_sep', default=';', help='The separator for the val target csv file. Default is ;')
-    parser.add_argument('--model_file', type=str, default='models/3dcnn.pth', help='Path and filename to checkpoint the model as.')
-    parser.add_argument('--epochs', type=int, default=5, help='Number of epochs to train for')
-    parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate for the optimizer')
-    parser.add_argument('--wd', type=float, default=1e-5, help='Weight decay for the optimizer')
-    parser.add_argument('--batch_size', type=int, default=16, help='Batch size for the DataLoader')
-    parser.add_argument('--n_workers', type=int, default=11, help='Number of workers for the DataLoader')
-
-    args = parser.parse_args()
-
-    train_and_validate(args)
-
-
-def train_and_validate(args):
+def train_and_validate(model, args):
 
     # Create DataLoaders for training and validation
     train_d_set = dcm_dataset.DCMDataset(args.train_views, args.train_targets, config.train_transforms,
@@ -66,15 +42,14 @@ def train_and_validate(args):
     opt_level = 'O2'
     amp_enabled = True
 
-    # Initialize model, optimizer and loss function
+    # Set parallelization, optimizer and loss function
     parallel_model = False
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     if parallel_model:
         os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
-        model = cnn_model_parallel.CNNParallel()
+        model = nn.DataParallel(model)
     else:
         os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-        model = cnn_model.CNN()
     model.to(device)
     print('Model parameters: {}'.format(sum(p.numel() for p in model.parameters() if p.requires_grad)))
 
@@ -200,7 +175,3 @@ def train_and_validate(args):
               'Validation Loss: {loss.avg:.4f} \t '
               'Validation R2 score: {r2.avg:.3f} \t'
               .format(i+1, batch_time=batch_time_v, data_time=data_time_v, loss=losses_v, r2=r2_values_v))
-
-
-if __name__ == "__main__":
-    main()
