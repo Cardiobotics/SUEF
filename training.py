@@ -2,6 +2,7 @@ import dcm_dataset
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
+from torch import autograd
 from utils import AverageMeter
 from sklearn.metrics import r2_score
 import time
@@ -40,8 +41,8 @@ def train_and_validate(model, args):
     # 01 = Patched Tensor methods/PyTorch functions, no mixed precision for weights
     # 02 = Mixed precision for model weights, batchnorm as FP32, no patch
     # 03 = Full FP16 everywhere
-    opt_level = 'O2'
-    amp_enabled = True
+    opt_level = 'O1'
+    amp_enabled = False
 
     # Set parallelization, optimizer and loss function
     parallel_model = False
@@ -106,27 +107,31 @@ def train_and_validate(model, args):
                 targets_t = targets_t.to(device, non_blocking=True)
                 inputs_t = inputs_t.to(device, non_blocking=True)
 
-            # Get model train output and train loss
-            outputs_t = model(inputs_t)
-            loss_t = criterion(outputs_t, targets_t)
+            # Do forward and backwards pass
+            with autograd.detect_anomaly():
+                # Get model train output and train loss
+                outputs_t = model(inputs_t.float())
+                loss_t = criterion(outputs_t, targets_t)
 
-            # Update metrics
-            r2_t = r2_score(targets_t.cpu().detach(), outputs_t.cpu().detach())
-            r2_values_t.update(r2_t)
-            losses_t.update(loss_t)
-
-            # Backwards pass and step
-            optimizer.zero_grad()
-            # Backwards pass
-            if amp_enabled:
-                with amp.scale_loss(loss_t, optimizer) as scaled_loss:
-                    scaled_loss.backward()
-            else:
-                loss_t.backward()
-            optimizer.step()
+                # Backwards pass and step
+                optimizer.zero_grad()
+                # Backwards pass
+                if amp_enabled:
+                    with amp.scale_loss(loss_t, optimizer) as scaled_loss:
+                        scaled_loss.backward()
+                else:
+                    loss_t.backward()
+                optimizer.step()
 
             # Gradient Clipping
             torch.nn.utils.clip_grad_value_(amp.master_params(optimizer), max_norm)
+
+            # Update metrics
+            r2_targets_t = targets_t.cpu().detach()
+            r2_outputs_t = outputs_t.cpu().detach()
+            r2_t = r2_score(r2_targets_t, r2_outputs_t)
+            r2_values_t.update(r2_t)
+            losses_t.update(loss_t)
 
             # Update timer for batch
             batch_time_t.update(time.time() - end_time_t)
@@ -139,7 +144,6 @@ def train_and_validate(model, args):
                       'Training R2 Score: {r2.val:.3f} ({r2.avg:.3f}) \t'
                       .format(j+1, len(train_data_loader), i + 1, batch_time=batch_time_t, data_time=data_time_t,
                               loss=losses_t, r2=r2_values_t))
-
 
             # Reset end timer
             end_time_t = time.time()
@@ -156,7 +160,6 @@ def train_and_validate(model, args):
         if use_scheduler:
             scheduler.step()
 
-
         # Validation
         model.eval()
         with torch.no_grad():
@@ -169,12 +172,15 @@ def train_and_validate(model, args):
                     targets_v = targets_v.to(device, non_blocking=True)
                     inputs_v = inputs_v.to(device, non_blocking=True)
 
-                # Get model validation output and validation loss
-                outputs_v = model(inputs_v)
-                loss_v = criterion(outputs_v, targets_v)
+                with autograd.detect_anomaly():
+                    # Get model validation output and validation loss
+                    outputs_v = model(inputs_v)
+                    loss_v = criterion(outputs_v, targets_v)
 
                 # Update metrics
-                r2_v = r2_score(targets_v.cpu().detach(), outputs_v.cpu().detach())
+                r2_targets_v = targets_v.cpu().detach()
+                r2_outputs_v = outputs_v.cpu().detach()
+                r2_v = r2_score(r2_targets_v, r2_outputs_v)
                 r2_values_v.update(r2_v)
                 losses_v.update(loss_v)
 

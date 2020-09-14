@@ -1,7 +1,7 @@
 import argparse
 from models import custom_cnn
 from models import resnext
-from models.training import train_and_validate
+from training import train_and_validate
 import config
 
 def main():

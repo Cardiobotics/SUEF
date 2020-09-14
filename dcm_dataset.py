@@ -13,10 +13,8 @@ class DCMDataset(torch.utils.data.Dataset):
         super(DCMDataset).__init__()
 
         self.targets = pd.read_csv(os.path.abspath(target_file), sep=file_sep)
-        if t_settings['normalize_output']:
-            self.min_t = self.targets['target'].min()
-            self.max_t = self.targets['target'].max()
-            self.targets['target'] = self.targets['target'].apply(lambda x: (x - self.min_t) / (self.max_t - self.min_t))
+        if t_settings['scale_output']:
+            self.targets['target'] = self.targets['target'].apply(lambda x: x / 100)
         view_files = pd.read_csv(os.path.abspath(view_file), sep=file_sep)
         self.files = view_files[view_files['prediction'].isin(config.allowed_views)].copy()
         self.data_aug = data_transforms.DataAugmentations(t_settings)
