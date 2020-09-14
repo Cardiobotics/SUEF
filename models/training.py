@@ -7,6 +7,7 @@ from sklearn.metrics import r2_score
 import time
 import config
 from apex import amp
+from apex.optimizers import FusedAdam
 import os
 
 
@@ -53,8 +54,17 @@ def train_and_validate(model, args):
     model.to(device)
     print('Model parameters: {}'.format(sum(p.numel() for p in model.parameters() if p.requires_grad)))
 
+    # Set loss criterion
     criterion = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.wd)
+
+    # Set optimizer
+    if cuda_available and amp_enabled:
+        optimizer = FusedAdam(model.parameters(), lr=args.lr, weight_decay=args.wd)
+    else:
+        optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.wd)
+
+    # Maximum value used for gradient clipping = max fp16/2
+    max_norm = 32752
 
     # Put model on Apex Amp
     if amp_enabled:
@@ -100,13 +110,10 @@ def train_and_validate(model, args):
             outputs_t = model(inputs_t)
             loss_t = criterion(outputs_t, targets_t)
 
-            try:
-                # Update metrics
-                r2_t = r2_score(targets_t.cpu().detach(), outputs_t.cpu().detach())
-                r2_values_t.update(r2_t)
-                losses_t.update(loss_t)
-            except Exception as e:
-                print("R2 calculation failed for Outputs: {} \n Targets: {} \n with Exception: {}".format(outputs_t, targets_t, e))
+            # Update metrics
+            r2_t = r2_score(targets_t.cpu().detach(), outputs_t.cpu().detach())
+            r2_values_t.update(r2_t)
+            losses_t.update(loss_t)
 
             # Backwards pass and step
             optimizer.zero_grad()
@@ -117,6 +124,9 @@ def train_and_validate(model, args):
             else:
                 loss_t.backward()
             optimizer.step()
+
+            # Gradient Clipping
+            torch.nn.utils.clip_grad_value_(amp.master_params(optimizer), max_norm)
 
             # Update timer for batch
             batch_time_t.update(time.time() - end_time_t)
