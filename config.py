@@ -2,9 +2,9 @@
 train_transforms = {
     'grayscale': True,
     'normalize_input': True,
-    'normalize_output': False,
-    'noise': False,
-    'speckle': False,
+    'normalize_output': True,
+    'noise': True,
+    'speckle': True,
     'rescale_fps': True,
     'resize_frames': True,
     'crop': 3,
