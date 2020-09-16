@@ -1,0 +1,4 @@
+# @package model
+
+name: ccnn
+layers: 5

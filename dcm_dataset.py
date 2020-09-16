@@ -5,19 +5,18 @@ import pydicom
 import data_transforms
 import os
 import random
-import config
 
 
 class DCMDataset(torch.utils.data.Dataset):
-    def __init__(self, view_file, target_file, t_settings, file_sep=';'):
+    def __init__(self, view_file, target_file, transforms, augmentations, file_sep):
         super(DCMDataset).__init__()
 
         self.targets = pd.read_csv(os.path.abspath(target_file), sep=file_sep)
-        if t_settings['scale_output']:
+        if transforms.scale_output:
             self.targets['target'] = self.targets['target'].apply(lambda x: x / 100)
         view_files = pd.read_csv(os.path.abspath(view_file), sep=file_sep)
-        self.files = view_files[view_files['prediction'].isin(config.allowed_views)].copy()
-        self.data_aug = data_transforms.DataAugmentations(t_settings)
+        self.files = view_files
+        self.data_aug = data_transforms.DataAugmentations(transforms, augmentations)
 
     def __len__(self):
         return len(self.targets)
@@ -40,6 +39,6 @@ class DCMDataset(torch.utils.data.Dataset):
         except ValueError as e:
             print("Target UID: {}, Files: {}, Failed with exception: {} ".format(uid, uid_files, e))
         except Exception as e:
-            print("Failed to get item for UID: {}, Files: {} , with exception: {}".format(uid, uid_files, e))
+            print("Failed to get item for UID: {}, Files: {}, Row: {} , with exception: {}".format(uid, uid_files, row, e))
 
         return img, target

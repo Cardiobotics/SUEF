@@ -6,24 +6,28 @@ from torch import autograd
 from utils import AverageMeter
 from sklearn.metrics import r2_score
 import time
-import config
 from apex import amp
 from apex.optimizers import FusedAdam
 import os
+import neptune
+import hydra
+from omegaconf import DictConfig, OmegaConf
 
 
-def train_and_validate(model, args):
+def train_and_validate(model, cfg):
 
     # Create DataLoaders for training and validation
-    train_d_set = dcm_dataset.DCMDataset(args.train_views, args.train_targets, config.train_transforms,
-                                         args.train_target_sep)
+    train_d_set = dcm_dataset.DCMDataset(cfg.data.train_view_path, cfg.data.train_target_path, cfg.transforms,
+                                         cfg.augmentations, cfg.data.file_sep)
     train_sampler = RandomSampler(train_d_set)
-    train_data_loader = DataLoader(train_d_set, sampler=train_sampler, batch_size=args.batch_size, num_workers=args.n_workers)
+    train_data_loader = DataLoader(train_d_set, sampler=train_sampler, batch_size=cfg.data_loader.batch_size,
+                                   num_workers=cfg.data_loader.n_workers)
 
-    val_d_set = dcm_dataset.DCMDataset(args.val_views, args.val_targets, config.val_transforms,
-                                       args.val_target_sep)
+    val_d_set = dcm_dataset.DCMDataset(cfg.data.val_view_path, cfg.data.val_target_path, cfg.transforms,
+                                       cfg.augmentations, cfg.data.file_sep)
     test_sampler = SequentialSampler(val_d_set)
-    val_data_loader = DataLoader(val_d_set, sampler=test_sampler, batch_size=args.batch_size, num_workers=args.n_workers)
+    val_data_loader = DataLoader(val_d_set, sampler=test_sampler, batch_size=cfg.data_loader.batch_size,
+                                 num_workers=cfg.data_loader.n_workers)
 
     # Set cuda and clear cache
     cuda_available = torch.cuda.is_available()
@@ -34,18 +38,18 @@ def train_and_validate(model, args):
         device = torch.device('cpu')
 
     # CUDNN Auto-tuner. Use True when input size and model is static
-    torch.backends.cudnn.benchmark = True
+    torch.backends.cudnn.benchmark = cfg.performance.cuddn_auto_tuner
 
     # Set Apex optimization level
     # 00 = no optimization
     # 01 = Patched Tensor methods/PyTorch functions, no mixed precision for weights
     # 02 = Mixed precision for model weights, batchnorm as FP32, no patch
     # 03 = Full FP16 everywhere
-    opt_level = 'O1'
-    amp_enabled = False
+    opt_level = cfg.performance.amp_opt_level
+    amp_enabled = cfg.performance.amp_enabled
 
     # Set parallelization, optimizer and loss function
-    parallel_model = False
+    parallel_model = cfg.performance.parallel_mode
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     if parallel_model:
         os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
@@ -60,12 +64,16 @@ def train_and_validate(model, args):
 
     # Set optimizer
     if cuda_available and amp_enabled:
-        optimizer = FusedAdam(model.parameters(), lr=args.lr, weight_decay=args.wd)
+        optimizer = FusedAdam(model.parameters(), lr=cfg.optimizer.learning_rate, weight_decay=cfg.optimizer.weight_decay)
     else:
-        optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.wd)
+        optimizer = torch.optim.Adam(model.parameters(), lr=cfg.optimizer.learning_rate, weight_decay=cfg.optimizer.weight_decay)
 
     # Maximum value used for gradient clipping = max fp16/2
-    max_norm = 32752
+    gradient_clipping = cfg.performance.gradient_clipping
+    max_norm = cfg.performance.gradient_clipping_max_norm
+
+    # Set anomaly detection
+    torch.autograd.set_detect_anomaly(cfg.performance.anomaly_detection)
 
     # Put model on Apex Amp
     if amp_enabled:
@@ -77,13 +85,14 @@ def train_and_validate(model, args):
     print('Model memory size: {}'.format(mem))
 
     # Initialize scheduler
-    use_scheduler = True
+    use_scheduler = cfg.training.use_scheduler
     if use_scheduler:
-        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=cfg.training.sched_step_size,
+                                                    gamma=cfg.training.sched_gamma)
 
     # Begin training
 
-    for i in range(args.epochs):
+    for i in range(cfg.training.epochs):
 
         batch_time_t = AverageMeter()
         data_time_t = AverageMeter()
@@ -108,23 +117,24 @@ def train_and_validate(model, args):
                 inputs_t = inputs_t.to(device, non_blocking=True)
 
             # Do forward and backwards pass
-            with autograd.detect_anomaly():
-                # Get model train output and train loss
-                outputs_t = model(inputs_t.float())
-                loss_t = criterion(outputs_t, targets_t)
 
-                # Backwards pass and step
-                optimizer.zero_grad()
-                # Backwards pass
-                if amp_enabled:
-                    with amp.scale_loss(loss_t, optimizer) as scaled_loss:
-                        scaled_loss.backward()
-                else:
-                    loss_t.backward()
-                optimizer.step()
+            # Get model train output and train loss
+            outputs_t = model(inputs_t.float())
+            loss_t = criterion(outputs_t, targets_t)
+
+            # Backwards pass and step
+            optimizer.zero_grad()
+            # Backwards pass
+            if amp_enabled:
+                with amp.scale_loss(loss_t, optimizer) as scaled_loss:
+                    scaled_loss.backward()
+            else:
+                loss_t.backward()
+            optimizer.step()
 
             # Gradient Clipping
-            torch.nn.utils.clip_grad_value_(amp.master_params(optimizer), max_norm)
+            if gradient_clipping:
+                torch.nn.utils.clip_grad_value_(amp.master_params(optimizer), max_norm)
 
             # Update metrics
             r2_targets_t = targets_t.cpu().detach()
@@ -172,10 +182,9 @@ def train_and_validate(model, args):
                     targets_v = targets_v.to(device, non_blocking=True)
                     inputs_v = inputs_v.to(device, non_blocking=True)
 
-                with autograd.detect_anomaly():
-                    # Get model validation output and validation loss
-                    outputs_v = model(inputs_v)
-                    loss_v = criterion(outputs_v, targets_v)
+                # Get model validation output and validation loss
+                outputs_v = model(inputs_v)
+                loss_v = criterion(outputs_v, targets_v)
 
                 # Update metrics
                 r2_targets_v = targets_v.cpu().detach()
@@ -205,18 +214,42 @@ def train_and_validate(model, args):
               'Validation R2 score: {r2.avg:.3f} \t'
               .format(i+1, batch_time=batch_time_v, data_time=data_time_v, loss=losses_v, r2=r2_values_v))
 
-        save_checkpoint(args.save_path, i+1, model, optimizer, scheduler)
+        if cfg.training.checkpointing_enabled:
+            checkpoint_name = cfg.training.checkpoint_save_path + cfg.model.name + '.pth'
+            save_checkpoint(checkpoint_name, model, optimizer, scheduler)
+
+        if cfg.logging.logging_enabled:
+            log_metrics(losses_v.avg, r2_values_v.avg)
 
 
-def save_checkpoint(save_file_path, epoch, model, optimizer, scheduler):
+def log_metrics(loss, r2):
+    neptune.log_metric('loss', loss)
+    neptune.log_metric('r2', r2)
+
+
+def save_checkpoint(save_file_path, model, optimizer, scheduler):
     if hasattr(model, 'module'):
         model_state_dict = model.module.state_dict()
     else:
         model_state_dict = model.state_dict()
     save_states = {
-        'epoch': epoch,
-        'state_dict': model_state_dict,
+        'model': model_state_dict,
         'optimizer': optimizer.state_dict(),
-        'scheduler': scheduler.state_dict()
+        'scheduler': scheduler.state_dict(),
+        'amp': amp.state_dict()
     }
     torch.save(save_states, save_file_path)
+
+
+def restore_checkpoint(args, model, optimizer, scheduler, checkpoint_path):
+    # Restore
+    checkpoint = torch.load(checkpoint_path)
+
+    model, optimizer = amp.initialize(model, optimizer, opt_level=args.opt_level)
+    model.load_state_dict(checkpoint['model'])
+    optimizer.load_state_dict(checkpoint['optimizer'])
+    amp.load_state_dict(checkpoint['amp'])
+    scheduler.load_state_dict(checkpoint['scheduler'])
+
+    return model, optimizer, scheduler
+

@@ -1,0 +1,11 @@
+# @package data
+
+name: Sax
+view_label: 20
+file_sep: ;
+train_target_path: /home/ola/Projects/SUEF/data/train_targets_20.csv
+train_view_path: /home/ola/Projects/SUEF/data/train_views_20.csv
+val_target_path: /home/ola/Projects/SUEF/data/val_targets_20.csv
+val_view_path: /home/ola/Projects/SUEF/data/val_views_20.csv
+test_target_path: /home/ola/Projects/SUEF/data/test_targets_20.csv
+test_view_path: /home/ola/Projects/SUEF/data/test_views_20.csv

@@ -1,0 +1,56 @@
+defaults:
+  - optimizer: adam
+  - model: ccnn
+  - data: 2c
+
+logging:
+  logging_enabled: False
+  project_name: 'eiphodos/SUEF'
+  experiment_name: 'resnext'
+
+performance:
+  cuddn_auto_tuner: True
+  amp_enabled: True
+  amp_opt_level: O2
+  parallel_mode: False
+  anomaly_detection: False
+  gradient_clipping: True
+  gradient_clipping_max_norm: 32752
+
+data_loader:
+  batch_size: 16
+  n_workers: 11
+  custom_collate: False
+
+training:
+  epochs: 30
+  use_scheduler: True
+  sched_step_size: 10
+  sched_gamma: 0.1
+  checkpointing_enabled: True
+  checkpoint_save_path: /home/ola/Projects/SUEF/saved_models/
+  
+transforms:
+  org_height: 484
+  org_width: 636
+
+  grayscale: True
+  normalize_input: True
+  scale_output: False
+  rescale_fps: True
+  resize_frames: True
+  crop_sides: True
+  crop_length: True
+  pad_size: True
+  loop_length: True
+  target_height: 242
+  target_width: 318
+  target_length: 30
+  target_fps: 25
+
+augmentations:
+  gaussian_noise: True
+  speckle: True
+  salt_and_pepper: False
+  transpose_v: False
+  transpose_h: False

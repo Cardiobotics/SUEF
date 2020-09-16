@@ -1,0 +1,12 @@
+# @package model
+
+name: resnext
+pre_trained_checkpoint: /home/ola/Projects/SUEF/pretrained_models/r3d50_KMS_200ep.pth
+
+model_depth: 50
+cardinality: 32
+n_classes: 1
+n_input_channels: 1
+shortcut_type: 'B'
+conv1_t_size: 7
+conv1_t_stride: 1

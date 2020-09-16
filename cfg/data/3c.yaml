@@ -1,0 +1,11 @@
+# @package data
+
+name: 3-Chamber
+view_label: 2
+file_sep: ;
+train_target_path: /home/ola/Projects/SUEF/data/train_targets_2.csv
+train_view_path: /home/ola/Projects/SUEF/data/train_views_2.csv
+val_target_path: /home/ola/Projects/SUEF/data/val_targets_2.csv
+val_view_path: /home/ola/Projects/SUEF/data/val_views_2.csv
+test_target_path: /home/ola/Projects/SUEF/data/test_targets_2.csv
+test_view_path: /home/ola/Projects/SUEF/data/test_views_2.csv
