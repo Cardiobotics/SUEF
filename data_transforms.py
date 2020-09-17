@@ -78,7 +78,7 @@ class DataAugmentations:
     
 
     def t_gaussian_noise(self, img):
-        return random_noise(img, mode='gaussian', var=0.1)
+        return random_noise(img, mode='gaussian', var=0.05)
 
     def t_grayscale(self, img):
         # Luminence numbers for converting RGB to grayscale
@@ -99,7 +99,7 @@ class DataAugmentations:
         return random_noise(img, mode='s&p')
 
     def t_speckle(self, img):
-        return random_noise(img, mode='speckle', var=0.1)
+        return random_noise(img, mode='speckle', var=0.05)
 
     def t_resize(self, img, target_length, target_height, target_width):
         return resize(img, (target_length, target_height, target_width), mode='constant', cval=0, preserve_range=True,

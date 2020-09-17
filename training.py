@@ -252,4 +252,3 @@ def restore_checkpoint(args, model, optimizer, scheduler, checkpoint_path):
     scheduler.load_state_dict(checkpoint['scheduler'])
 
     return model, optimizer, scheduler
-

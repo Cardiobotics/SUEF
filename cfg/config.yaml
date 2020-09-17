@@ -1,12 +1,12 @@
 defaults:
   - optimizer: adam
-  - model: ccnn
+  - model: i3d_img
   - data: 2c
 
 logging:
-  logging_enabled: False
+  logging_enabled: True
   project_name: 'eiphodos/SUEF'
-  experiment_name: 'resnext'
+  experiment_name: 'i3d'
 
 performance:
   cuddn_auto_tuner: True
@@ -29,6 +29,7 @@ training:
   sched_gamma: 0.1
   checkpointing_enabled: True
   checkpoint_save_path: /home/ola/Projects/SUEF/saved_models/
+  frozen_lower_training: False
   
 transforms:
   org_height: 484
@@ -39,14 +40,14 @@ transforms:
   scale_output: False
   rescale_fps: True
   resize_frames: True
-  crop_sides: True
+  crop_sides: False
   crop_length: True
-  pad_size: True
+  pad_size: False
   loop_length: True
-  target_height: 242
-  target_width: 318
-  target_length: 30
-  target_fps: 25
+  target_height: 194
+  target_width: 254
+  target_length: 20
+  target_fps: 15
 
 augmentations:
   gaussian_noise: True

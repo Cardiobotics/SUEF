@@ -5,6 +5,7 @@ import pydicom
 import data_transforms
 import os
 import random
+from PIL import Image
 
 
 class DCMDataset(torch.utils.data.Dataset):
@@ -34,8 +35,8 @@ class DCMDataset(torch.utils.data.Dataset):
             img = dcm_data.pixel_array
             if not dcm_data.InstanceNumber == row['instance_id'] and dcm_data.PatientID == uid:
                 raise ValueError("InstanceID or PatientID not matching")
-            if self.data_aug:
-                img = self.data_aug.transform(dcm_data)
+            img = self.data_aug.transform(dcm_data)
+
         except ValueError as e:
             print("Target UID: {}, Files: {}, Failed with exception: {} ".format(uid, uid_files, e))
         except Exception as e:

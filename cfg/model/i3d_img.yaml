@@ -1,0 +1,9 @@
+# @package model
+
+name: i3d_img
+pre_trained_checkpoint: /home/ola/Projects/SUEF/pretrained_models/i3d_rgb_imagenet.pt
+
+n_classes: 1
+pre_n_classes: 400
+n_input_channels: 1
+pre_n_input_channels: 3
