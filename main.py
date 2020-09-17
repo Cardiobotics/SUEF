@@ -28,7 +28,7 @@ def main(cfg: DictConfig) -> None:
         model = i3d.InceptionI3d(cfg.model.pre_n_classes, in_channels=cfg.model.n_input_channels)
         state_dict = torch.load(cfg.model.pre_trained_checkpoint)
         conv1_weights = state_dict['Conv3d_1a_7x7.conv3d.weight']
-        state_dict['Conv3d_1a_7x7.conv3d.weight'] = conv1_weights.sum(dim=1, keepdim=True)
+        state_dict['Conv3d_1a_7x7.conv3d.weight'] = conv1_weights.mean(dim=1, keepdim=True)
         model.load_state_dict(state_dict)
         model.replace_logits(cfg.model.n_classes)
 
@@ -38,6 +38,8 @@ def main(cfg: DictConfig) -> None:
                              **dict(cfg.performance), **dict(cfg.training), **dict(cfg.optimizer), **dict(cfg.model),
                              'view': cfg.data.name}
         neptune.create_experiment(name=cfg.logging.experiment_name, params=experiment_params)
+
+    val_data_set = generate_dataset()
 
     train_and_validate(model, cfg)
 

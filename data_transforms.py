@@ -92,6 +92,10 @@ class DataAugmentations:
             new_img[i] = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
         return np.expand_dims(new_img, axis=-1)
 
+    def t_grayscale_mean(self, img):
+        img = np.average(img, axis=-1)
+        return np.expand_dims(img, axis=-1)
+
     def t_normalize(self, img):
         return img.astype(np.float32) / 255
 
