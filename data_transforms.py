@@ -16,18 +16,20 @@ class DataAugmentations:
         self.transforms = transforms
         self.augmentations = augmentations
         self.debug = False
-        
-    def transform(self, data):
-        img = data.pixel_array
-        time_start = time.time()
-        if self.transforms.grayscale:
-            img = self.t_grayscale(img)
+
+    def transform_values(self, img):
         if self.transforms.normalize_input:
-            img = self.t_normalize(img)
+            img = self.t_normalize_signed(img)
         if self.augmentations.gaussian_noise:
             img = self.t_gaussian_noise(img)
         if self.augmentations.speckle:
             img = self.t_speckle(img)
+        return img
+
+    def transform_size(self, img, fps):
+        time_start = time.time()
+        if self.transforms.grayscale:
+            img = self.t_grayscale_mean(img)
         if self.debug:
             time_gf = time.time()
             time_gf_diff = time_gf - time_start
@@ -35,7 +37,7 @@ class DataAugmentations:
         if self.transforms.rescale_fps or self.transforms.resize_frames:
             # Some files had only this attribute instead of data.CineRate
             # so this was used instead, in theory they should be the same.
-            original_fps = data.RecommendedDisplayFrameRate
+            original_fps = fps
             if self.transforms.rescale_fps and not self.transforms.target_fps == original_fps:
                 new_length = int(img.shape[0] * (self.transforms.target_fps/original_fps))
             else:
@@ -48,7 +50,6 @@ class DataAugmentations:
             else:
                 new_height = img.shape[1]
                 new_width = img.shape[2]
-
             img = self.t_resize(img, new_length, new_height, new_width)
         if self.debug:
             time_rescale = time.time()
@@ -94,10 +95,13 @@ class DataAugmentations:
 
     def t_grayscale_mean(self, img):
         img = np.average(img, axis=-1)
-        return np.expand_dims(img, axis=-1)
+        return np.expand_dims(img, axis=-1).astype(np.uint8)
 
     def t_normalize(self, img):
         return img.astype(np.float32) / 255
+
+    def t_normalize_signed(self, img):
+        return ((img / 255.) * 2 - 1).astype(np.float32)
 
     def t_salt_and_pepper(self, img):
         return random_noise(img, mode='s&p')
@@ -107,7 +111,7 @@ class DataAugmentations:
 
     def t_resize(self, img, target_length, target_height, target_width):
         return resize(img, (target_length, target_height, target_width), mode='constant', cval=0, preserve_range=True,
-                      anti_aliasing=False)
+                      anti_aliasing=False).astype(np.uint8)
 
     def t_pad_size(self, img):
         # Pad edges of frames
@@ -128,7 +132,7 @@ class DataAugmentations:
                 img = np.append(img, org_img, axis=0)
             else:
                 img = np.append(img, org_img[0:self.transforms.target_length - len(img)], axis=0)
-        return img
+        return img.astype(np.uint8)
 
     def t_crop(self, img):
         # Crop edges of frames
@@ -138,4 +142,4 @@ class DataAugmentations:
             crop_sequence[2] = (int(img.shape[2] / 20), int(img.shape[2] / 20))
         if self.transforms.crop_length and img.shape[0] > self.transforms.target_length:
             crop_sequence[0] = (0, img.shape[0] - self.transforms.target_length)
-        return crop(img, crop_width=tuple(crop_sequence))
+        return crop(img, crop_width=tuple(crop_sequence)).astype(np.uint8)

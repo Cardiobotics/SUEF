@@ -39,7 +39,6 @@ def main(cfg: DictConfig) -> None:
                              'view': cfg.data.name}
         neptune.create_experiment(name=cfg.logging.experiment_name, params=experiment_params)
 
-    val_data_set = generate_dataset()
 
     train_and_validate(model, cfg)
 

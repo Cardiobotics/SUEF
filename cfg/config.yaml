@@ -4,7 +4,7 @@ defaults:
   - data: 2c
 
 logging:
-  logging_enabled: True
+  logging_enabled: False
   project_name: 'eiphodos/SUEF'
   experiment_name: 'i3d'
 
@@ -23,13 +23,13 @@ data_loader:
   custom_collate: False
 
 training:
-  epochs: 30
+  epochs: 40
   use_scheduler: True
   sched_step_size: 10
   sched_gamma: 0.1
   checkpointing_enabled: True
   checkpoint_save_path: /home/ola/Projects/SUEF/saved_models/
-  frozen_lower_training: False
+  freeze_lower: True
   
 transforms:
   org_height: 484

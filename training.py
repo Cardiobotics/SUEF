@@ -59,14 +59,23 @@ def train_and_validate(model, cfg):
     model.to(device)
     print('Model parameters: {}'.format(sum(p.numel() for p in model.parameters() if p.requires_grad)))
 
+    if cfg.training.freeze_lower:
+        for p in model.parameters():
+            p.requires_grad = False
+        model.logits.conv3d.weight.requires_grad = True
+        model.logits.conv3d.bias.requires_grad = True
+
+
     # Set loss criterion
     criterion = nn.MSELoss()
 
     # Set optimizer
     if cuda_available and amp_enabled:
-        optimizer = FusedAdam(model.parameters(), lr=cfg.optimizer.learning_rate, weight_decay=cfg.optimizer.weight_decay)
+        optimizer = FusedAdam(filter(lambda p: p.requires_grad, model.parameters()), lr=cfg.optimizer.learning_rate,
+                              weight_decay=cfg.optimizer.weight_decay)
     else:
-        optimizer = torch.optim.Adam(model.parameters(), lr=cfg.optimizer.learning_rate, weight_decay=cfg.optimizer.weight_decay)
+        optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()),
+                                     lr=cfg.optimizer.learning_rate, weight_decay=cfg.optimizer.weight_decay)
 
     # Maximum value used for gradient clipping = max fp16/2
     gradient_clipping = cfg.performance.gradient_clipping
@@ -169,6 +178,18 @@ def train_and_validate(model, cfg):
         end_time_v = time.time()
         if use_scheduler:
             scheduler.step()
+
+        if cfg.training.freeze_lower and j == 3:
+            for p in model.parameters():
+                p.requires_grad = True
+            if cuda_available and amp_enabled:
+                optimizer = FusedAdam(filter(lambda p: p.requires_grad, model.parameters()),
+                                      lr=cfg.optimizer.learning_rate,
+                                      weight_decay=cfg.optimizer.weight_decay)
+            else:
+                optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()),
+                                             lr=cfg.optimizer.learning_rate, weight_decay=cfg.optimizer.weight_decay)
+
 
         # Validation
         model.eval()
