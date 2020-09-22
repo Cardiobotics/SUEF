@@ -1,4 +1,4 @@
-import dcm_dataset
+from npy_dataset import NPYDataset
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
@@ -17,28 +17,43 @@ from omegaconf import DictConfig, OmegaConf
 def train_and_validate(model, cfg):
 
     # Create DataLoaders for training and validation
-    train_d_set = dcm_dataset.DCMDataset(cfg.data.train_view_path, cfg.data.train_target_path, cfg.transforms,
-                                         cfg.augmentations, cfg.data.file_sep)
+    train_d_set = NPYDataset(cfg.data.data_folder, cfg.data.train_targets, cfg.transforms, cfg.augmentations,
+                             cfg.data.file_sep)
     train_sampler = RandomSampler(train_d_set)
-    train_data_loader = DataLoader(train_d_set, sampler=train_sampler, batch_size=cfg.data_loader.batch_size,
-                                   num_workers=cfg.data_loader.n_workers)
+    train_data_loader = DataLoader(train_d_set, batch_size=cfg.data_loader.batch_size,
+                                   num_workers=cfg.data_loader.n_workers, drop_last=cfg.data_loader.drop_last,
+                                   shuffle=cfg.data_loader.shuffle)
 
-    val_d_set = dcm_dataset.DCMDataset(cfg.data.val_view_path, cfg.data.val_target_path, cfg.transforms,
-                                       cfg.augmentations, cfg.data.file_sep)
+    val_d_set = NPYDataset(cfg.data.data_folder, cfg.data.val_targets, cfg.transforms, cfg.augmentations,
+                           cfg.data.file_sep)
     test_sampler = SequentialSampler(val_d_set)
-    val_data_loader = DataLoader(val_d_set, sampler=test_sampler, batch_size=cfg.data_loader.batch_size,
-                                 num_workers=cfg.data_loader.n_workers)
+    val_data_loader = DataLoader(val_d_set, batch_size=cfg.data_loader.batch_size,
+                                 num_workers=cfg.data_loader.n_workers, drop_last=cfg.data_loader.drop_last,
+                                 shuffle=cfg.data_loader.shuffle)
 
-    # Set cuda and clear cache
+    # Set visible devices
+    parallel_model = cfg.performance.parallel_mode
+    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+    # Set cuda
     cuda_available = torch.cuda.is_available()
     if cuda_available:
         #torch.cuda.empty_cache()
         device = torch.device('cuda')
     else:
         device = torch.device('cpu')
+    model.to(device)
 
     # CUDNN Auto-tuner. Use True when input size and model is static
     torch.backends.cudnn.benchmark = cfg.performance.cuddn_auto_tuner
+
+    if cfg.training.freeze_lower:
+        for p in model.parameters():
+            p.requires_grad = False
+        model.logits.conv3d.weight.requires_grad = True
+        model.logits.conv3d.bias.requires_grad = True
+
+    # Set loss criterion
+    criterion = nn.MSELoss()
 
     # Set Apex optimization level
     # 00 = no optimization
@@ -48,27 +63,6 @@ def train_and_validate(model, cfg):
     opt_level = cfg.performance.amp_opt_level
     amp_enabled = cfg.performance.amp_enabled
 
-    # Set parallelization, optimizer and loss function
-    parallel_model = cfg.performance.parallel_mode
-    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-    if parallel_model:
-        os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
-        model = nn.DataParallel(model)
-    else:
-        os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-    model.to(device)
-    print('Model parameters: {}'.format(sum(p.numel() for p in model.parameters() if p.requires_grad)))
-
-    if cfg.training.freeze_lower:
-        for p in model.parameters():
-            p.requires_grad = False
-        model.logits.conv3d.weight.requires_grad = True
-        model.logits.conv3d.bias.requires_grad = True
-
-
-    # Set loss criterion
-    criterion = nn.MSELoss()
-
     # Set optimizer
     if cuda_available and amp_enabled:
         optimizer = FusedAdam(filter(lambda p: p.requires_grad, model.parameters()), lr=cfg.optimizer.learning_rate,
@@ -77,16 +71,14 @@ def train_and_validate(model, cfg):
         optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()),
                                      lr=cfg.optimizer.learning_rate, weight_decay=cfg.optimizer.weight_decay)
 
-    # Maximum value used for gradient clipping = max fp16/2
-    gradient_clipping = cfg.performance.gradient_clipping
-    max_norm = cfg.performance.gradient_clipping_max_norm
-
-    # Set anomaly detection
-    torch.autograd.set_detect_anomaly(cfg.performance.anomaly_detection)
-
     # Put model on Apex Amp
     if amp_enabled:
         model, optimizer = amp.initialize(model, optimizer, opt_level=opt_level)
+    if parallel_model:
+        print("Let's use", torch.cuda.device_count(), "GPUs!")
+        model = nn.DataParallel(model)
+
+    print('Model parameters: {}'.format(sum(p.numel() for p in model.parameters() if p.requires_grad)))
 
     mem_params = sum([param.nelement() * param.element_size() for param in model.parameters()])
     mem_buffs = sum([buf.nelement() * buf.element_size() for buf in model.buffers()])
@@ -98,6 +90,13 @@ def train_and_validate(model, cfg):
     if use_scheduler:
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=cfg.training.sched_step_size,
                                                     gamma=cfg.training.sched_gamma)
+
+    # Maximum value used for gradient clipping = max fp16/2
+    gradient_clipping = cfg.performance.gradient_clipping
+    max_norm = cfg.performance.gradient_clipping_max_norm
+
+    # Set anomaly detection
+    torch.autograd.set_detect_anomaly(cfg.performance.anomaly_detection)
 
     # Begin training
 
@@ -124,6 +123,10 @@ def train_and_validate(model, cfg):
             if cuda_available:
                 targets_t = targets_t.to(device, non_blocking=True)
                 inputs_t = inputs_t.to(device, non_blocking=True)
+
+            # In case inputs or targets are the wrong data format, convert them
+            inputs_t = inputs_t.float()
+            targets_t = targets_t.float()
 
             # Do forward and backwards pass
 
@@ -174,22 +177,15 @@ def train_and_validate(model, cfg):
               'Training Loss: {loss.avg:.4f} \t '
               'Training R2 score: {r2.avg:.3f} \t'
               .format(i+1, batch_time=batch_time_t, data_time=data_time_t, loss=losses_t, r2=r2_values_t))
-        print('Example targets: {} \n Example outputs: {}'.format(targets_t, outputs_t))
         end_time_v = time.time()
         if use_scheduler:
             scheduler.step()
 
-        if cfg.training.freeze_lower and j == 3:
+        if cfg.training.freeze_lower and i == 2:
             for p in model.parameters():
                 p.requires_grad = True
-            if cuda_available and amp_enabled:
-                optimizer = FusedAdam(filter(lambda p: p.requires_grad, model.parameters()),
-                                      lr=cfg.optimizer.learning_rate,
-                                      weight_decay=cfg.optimizer.weight_decay)
-            else:
-                optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()),
-                                             lr=cfg.optimizer.learning_rate, weight_decay=cfg.optimizer.weight_decay)
-
+            optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()),
+                                         lr=cfg.optimizer.learning_rate, weight_decay=cfg.optimizer.weight_decay)
 
         # Validation
         model.eval()
@@ -234,9 +230,11 @@ def train_and_validate(model, cfg):
               'Validation Loss: {loss.avg:.4f} \t '
               'Validation R2 score: {r2.avg:.3f} \t'
               .format(i+1, batch_time=batch_time_v, data_time=data_time_v, loss=losses_v, r2=r2_values_v))
+        print('Example targets: {} \n Example outputs: {}'.format(targets_v, outputs_v))
 
         if cfg.training.checkpointing_enabled:
-            checkpoint_name = cfg.training.checkpoint_save_path + cfg.model.name + '.pth'
+            checkpoint_name = cfg.training.checkpoint_save_path + cfg.model.name + '_' + cfg.data_stream.type + '_' \
+                              + cfg.data.name + '.pth'
             save_checkpoint(checkpoint_name, model, optimizer, scheduler)
 
         if cfg.logging.logging_enabled:

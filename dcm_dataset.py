@@ -61,6 +61,8 @@ class DCMDataset(torch.utils.data.Dataset):
         iterator = self.pd_data.itertuples(index=False, name=None)
         result = pool.map(self.read_image_data, iterator)
         print('Conversion to grayscale complete')
+        pool.close()
+        pool.join()
         for r in result:
             self.data_list.append(r)
 

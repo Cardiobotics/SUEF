@@ -24,7 +24,7 @@ class DataAugmentations:
             img = self.t_gaussian_noise(img)
         if self.augmentations.speckle:
             img = self.t_speckle(img)
-        return img
+        return img.astype(np.float32)
 
     def transform_size(self, img, fps):
         time_start = time.time()
@@ -75,11 +75,11 @@ class DataAugmentations:
             time_loop = time.time()
             time_loop_diff = time_loop - time_crop
             print("Image size after length looping: {}, Time to process: {}".format(img.shape, time_loop_diff))
-        return np.expand_dims(np.squeeze(img, axis=3), axis=0)
+        return img
     
 
     def t_gaussian_noise(self, img):
-        return random_noise(img, mode='gaussian', var=0.05)
+        return random_noise(img, mode='gaussian', var=self.augmentations.gn_var)
 
     def t_grayscale(self, img):
         # Luminence numbers for converting RGB to grayscale
@@ -95,7 +95,7 @@ class DataAugmentations:
 
     def t_grayscale_mean(self, img):
         img = np.average(img, axis=-1)
-        return np.expand_dims(img, axis=-1).astype(np.uint8)
+        return img.astype(np.uint8)
 
     def t_normalize(self, img):
         return img.astype(np.float32) / 255
@@ -107,7 +107,7 @@ class DataAugmentations:
         return random_noise(img, mode='s&p')
 
     def t_speckle(self, img):
-        return random_noise(img, mode='speckle', var=0.05)
+        return random_noise(img, mode='speckle', var=self.augmentations.speckle_var)
 
     def t_resize(self, img, target_length, target_height, target_width):
         return resize(img, (target_length, target_height, target_width), mode='constant', cval=0, preserve_range=True,

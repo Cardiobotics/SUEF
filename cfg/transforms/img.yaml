@@ -1,0 +1,18 @@
+# @package transforms
+
+org_height: 484
+org_width: 636
+
+grayscale: False
+normalize_input: True
+scale_output: False
+rescale_fps: True
+resize_frames: True
+crop_sides: False
+crop_length: True
+pad_size: False
+loop_length: True
+target_height: 169
+target_width: 223
+target_length: 20
+target_fps: 15

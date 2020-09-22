@@ -1,0 +1,9 @@
+# @package augmentations
+
+gaussian_noise: True
+gn_var: 0.05
+speckle: True
+speckle_var: 0.05
+salt_and_pepper: False
+transpose_v: False
+transpose_h: False

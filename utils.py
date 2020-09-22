@@ -1,5 +1,6 @@
 import csv
 from functools import partialmethod
+import os
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
@@ -56,3 +57,10 @@ def partialclass(cls, *args, **kwargs):
         __init__ = partialmethod(cls.__init__, *args, **kwargs)
 
     return PartialClass
+
+def load_filenames(path):
+    files = []
+    for dirName, _, fileList in os.walk(path):
+        for filename in fileList:
+            files.append((os.path.join(dirName, filename), filename))
+    return files

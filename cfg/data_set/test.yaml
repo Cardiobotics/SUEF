@@ -1,0 +1,11 @@
+# @package data
+
+name: Test
+label: test
+view_label: 0
+
+data_folder: ${data.base_data_folder}/${data_stream.type}/${data.view_label}
+
+train_targets: ${data.base_target_folder}/mini_train_targets_${data_stream.type}_${data.view_label}.csv
+val_targets: ${data.base_target_folder}/mini_val_targets_${data_stream.type}_${data.view_label}.csv
+test_targets: ${data.base_target_folder}/mini_test_targets_${data_stream.type}_${data.view_label}.csv
