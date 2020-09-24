@@ -1,10 +1,12 @@
 import torch
+from torch.utils.data import DataLoader
 from models import custom_cnn
 from models import resnext
 from models import i3d
 from training import train_and_validate
 import neptune
 import hydra
+from npy_dataset import NPYDataset
 from omegaconf import DictConfig, OmegaConf
 
 
@@ -46,7 +48,26 @@ def main(cfg: DictConfig) -> None:
                              'data_stream': cfg.data_stream.type, 'view': cfg.data.name}
         neptune.create_experiment(name=cfg.logging.experiment_name, params=experiment_params)
 
-    train_and_validate(model, cfg)
+    train_data_loader, val_data_loader = create_data_loaders(cfg)
+
+    train_and_validate(model, train_data_loader, val_data_loader, cfg)
+
+
+def create_data_loaders(cfg):
+    # Create DataLoaders for training and validation
+    train_d_set = NPYDataset(cfg.data.data_folder, cfg.data.train_targets, cfg.transforms, cfg.augmentations,
+                             cfg.data.file_sep)
+    train_data_loader = DataLoader(train_d_set, batch_size=cfg.data_loader.batch_size,
+                                   num_workers=cfg.data_loader.n_workers, drop_last=cfg.data_loader.drop_last,
+                                   shuffle=cfg.data_loader.shuffle)
+
+    val_d_set = NPYDataset(cfg.data.data_folder, cfg.data.val_targets, cfg.transforms, cfg.augmentations,
+                           cfg.data.file_sep)
+    val_data_loader = DataLoader(val_d_set, batch_size=cfg.data_loader.batch_size,
+                                 num_workers=cfg.data_loader.n_workers, drop_last=cfg.data_loader.drop_last,
+                                 shuffle=cfg.data_loader.shuffle)
+
+    return train_data_loader, val_data_loader
 
 
 if __name__ == "__main__":

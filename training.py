@@ -1,35 +1,16 @@
-from npy_dataset import NPYDataset
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
-from torch import autograd
 from utils import AverageMeter
 from sklearn.metrics import r2_score
 import time
-from apex import amp
-from apex.optimizers import FusedAdam
+from torch.cuda.amp import GradScaler
 import os
 import neptune
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
 
-def train_and_validate(model, cfg):
-
-    # Create DataLoaders for training and validation
-    train_d_set = NPYDataset(cfg.data.data_folder, cfg.data.train_targets, cfg.transforms, cfg.augmentations,
-                             cfg.data.file_sep)
-    train_sampler = RandomSampler(train_d_set)
-    train_data_loader = DataLoader(train_d_set, batch_size=cfg.data_loader.batch_size,
-                                   num_workers=cfg.data_loader.n_workers, drop_last=cfg.data_loader.drop_last,
-                                   shuffle=cfg.data_loader.shuffle)
-
-    val_d_set = NPYDataset(cfg.data.data_folder, cfg.data.val_targets, cfg.transforms, cfg.augmentations,
-                           cfg.data.file_sep)
-    test_sampler = SequentialSampler(val_d_set)
-    val_data_loader = DataLoader(val_d_set, batch_size=cfg.data_loader.batch_size,
-                                 num_workers=cfg.data_loader.n_workers, drop_last=cfg.data_loader.drop_last,
-                                 shuffle=cfg.data_loader.shuffle)
+def train_and_validate(model, train_data_loader, val_data_loader, cfg):
 
     # Set visible devices
     parallel_model = cfg.performance.parallel_mode
@@ -55,27 +36,12 @@ def train_and_validate(model, cfg):
     # Set loss criterion
     criterion = nn.MSELoss()
 
-    # Set Apex optimization level
-    # 00 = no optimization
-    # 01 = Patched Tensor methods/PyTorch functions, no mixed precision for weights
-    # 02 = Mixed precision for model weights, batchnorm as FP32, no patch
-    # 03 = Full FP16 everywhere
-    opt_level = cfg.performance.amp_opt_level
-    amp_enabled = cfg.performance.amp_enabled
-
     # Set optimizer
-    if cuda_available and amp_enabled:
-        optimizer = FusedAdam(filter(lambda p: p.requires_grad, model.parameters()), lr=cfg.optimizer.learning_rate,
-                              weight_decay=cfg.optimizer.weight_decay)
-    else:
+    if cuda_available:
         optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()),
                                      lr=cfg.optimizer.learning_rate, weight_decay=cfg.optimizer.weight_decay)
-
-    # Put model on Apex Amp
-    if amp_enabled:
-        model, optimizer = amp.initialize(model, optimizer, opt_level=opt_level)
     if parallel_model:
-        print("Let's use", torch.cuda.device_count(), "GPUs!")
+        print("Available GPUS: {}".format(torch.cuda.device_count()))
         model = nn.DataParallel(model)
 
     print('Model parameters: {}'.format(sum(p.numel() for p in model.parameters() if p.requires_grad)))
@@ -98,6 +64,9 @@ def train_and_validate(model, cfg):
     # Set anomaly detection
     torch.autograd.set_detect_anomaly(cfg.performance.anomaly_detection)
 
+    # Initialize GradScaler for autocasting
+    scaler = GradScaler()
+
     # Begin training
 
     for i in range(cfg.training.epochs):
@@ -118,35 +87,33 @@ def train_and_validate(model, cfg):
         for j, (inputs_t, targets_t) in enumerate(train_data_loader):
             # Update timer for data retrieval
             data_time_t.update(time.time() - end_time_t)
+
+            targets_t = targets_t.half()
+            inputs_t = inputs_t.half()
             
             # Move input to CUDA if available
             if cuda_available:
                 targets_t = targets_t.to(device, non_blocking=True)
                 inputs_t = inputs_t.to(device, non_blocking=True)
 
-            # In case inputs or targets are the wrong data format, convert them
-            inputs_t = inputs_t.float()
-            targets_t = targets_t.float()
-
             # Do forward and backwards pass
 
             # Get model train output and train loss
-            outputs_t = model(inputs_t.float())
+            outputs_t = model(inputs_t)
             loss_t = criterion(outputs_t, targets_t)
 
             # Backwards pass and step
             optimizer.zero_grad()
             # Backwards pass
-            if amp_enabled:
-                with amp.scale_loss(loss_t, optimizer) as scaled_loss:
-                    scaled_loss.backward()
-            else:
-                loss_t.backward()
-            optimizer.step()
+            scaler.scale(loss_t).backward()
 
             # Gradient Clipping
             if gradient_clipping:
-                torch.nn.utils.clip_grad_value_(amp.master_params(optimizer), max_norm)
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_value_(model.parameters(), max_norm)
+
+            scaler.step(optimizer)
+            scaler.update()
 
             # Update metrics
             r2_targets_t = targets_t.cpu().detach()
@@ -255,7 +222,6 @@ def save_checkpoint(save_file_path, model, optimizer, scheduler):
         'model': model_state_dict,
         'optimizer': optimizer.state_dict(),
         'scheduler': scheduler.state_dict(),
-        'amp': amp.state_dict()
     }
     torch.save(save_states, save_file_path)
 
@@ -264,10 +230,8 @@ def restore_checkpoint(args, model, optimizer, scheduler, checkpoint_path):
     # Restore
     checkpoint = torch.load(checkpoint_path)
 
-    model, optimizer = amp.initialize(model, optimizer, opt_level=args.opt_level)
     model.load_state_dict(checkpoint['model'])
     optimizer.load_state_dict(checkpoint['optimizer'])
-    amp.load_state_dict(checkpoint['amp'])
     scheduler.load_state_dict(checkpoint['scheduler'])
 
     return model, optimizer, scheduler

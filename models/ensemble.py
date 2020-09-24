@@ -5,19 +5,19 @@ import torch
 import torch.nn.functional as F
 
 
-class CNNEnsemble(nn.Module):
+class FlexEnsemble(nn.Module):
     '''
     Ensemble for combining multiple models.
     If the models are already trained, all layers except the last fc_linear must be frozen.
     '''
 
-    def __init__(self, **kwargs):
-        super(CNNEnsemble, self).__init__()
+    def __init__(self, *args):
+        super(FlexEnsemble, self).__init__()
         self.models = []
 
-        for model in kwargs.values():
+        for model in args:
             self.models.append(model)
-        self.num_models = len(kwargs)
+        self.num_models = len(args)
 
         self.fc_linear = nn.Linear(self.num_models, 1)
 

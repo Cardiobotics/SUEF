@@ -5,20 +5,18 @@ defaults:
   - transforms: ${defaults.0.data_stream}
   - augmentations: ${defaults.0.data_stream}
   - data: base
-  - data_set: 2c
+  - data_set: test
 
 logging:
-  logging_enabled: True
+  logging_enabled: False
   project_name: 'eiphodos/SUEF'
   experiment_name: 'i3d'
 
 performance:
   cuddn_auto_tuner: True
-  amp_enabled: True
-  amp_opt_level: O2
-  parallel_mode: False
+  parallel_mode: True
   anomaly_detection: False
-  gradient_clipping: True
+  gradient_clipping: False
   gradient_clipping_max_norm: 32752
 
 data_loader:
@@ -30,12 +28,12 @@ data_loader:
 
 optimizer:
   learning_rate: 0.01
-  weight_decay: 0.00001
+  weight_decay: 0.0001
 
 training:
-  epochs: 50
+  epochs: 25
   use_scheduler: True
-  sched_step_size: 15
+  sched_step_size: 10
   sched_gamma: 0.1
   checkpointing_enabled: True
   checkpoint_save_path: /home/ola/Projects/SUEF/saved_models/

@@ -2,13 +2,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
+from torch.cuda.amp import autocast
 
 import numpy as np
 
 import os
 import sys
 from collections import OrderedDict
-
 
 class MaxPool3dSamePadding(nn.MaxPool3d):
 
@@ -18,6 +18,7 @@ class MaxPool3dSamePadding(nn.MaxPool3d):
         else:
             return max(self.kernel_size[dim] - (s % self.stride[dim]), 0)
 
+    @autocast()
     def forward(self, x):
         # compute 'same' padding
         (batch, channel, t, h, w) = x.size()
@@ -86,6 +87,7 @@ class Unit3D(nn.Module):
         else:
             return max(self._kernel_shape[dim] - (s % self._stride[dim]), 0)
 
+    @autocast()
     def forward(self, x):
         # compute 'same' padding
         (batch, channel, t, h, w) = x.size()
@@ -140,6 +142,7 @@ class InceptionModule(nn.Module):
                           name=name + '/Branch_3/Conv3d_0b_1x1')
         self.name = name
 
+    @autocast()
     def forward(self, x):
         b0 = self.b0(x)
         b1 = self.b1b(self.b1a(x))
@@ -322,6 +325,7 @@ class InceptionI3d(nn.Module):
         for k in self.end_points.keys():
             self.add_module(k, self.end_points[k])
 
+    @autocast()
     def forward(self, x):
         for end_point in self.VALID_ENDPOINTS:
             if end_point in self.end_points:
