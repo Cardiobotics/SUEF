@@ -14,7 +14,7 @@ from omegaconf import DictConfig, OmegaConf
 def main(cfg: DictConfig) -> None:
 
     assert cfg.model.name in ['ccnn', 'resnext', 'i3d']
-    assert cfg.data_stream.type in ['img', 'flow']
+    assert cfg.data_stream.type in ['img', 'flow', '2stream']
 
     if cfg.model.name == 'ccnn':
         model = custom_cnn.CNN()
@@ -31,8 +31,9 @@ def main(cfg: DictConfig) -> None:
         if cfg.data_stream.type == 'img':
             model = i3d.InceptionI3d(cfg.model.pre_n_classes, in_channels=cfg.model.n_input_channels)
             state_dict = torch.load(cfg.model.pre_trained_checkpoint)
-            conv1_weights = state_dict['Conv3d_1a_7x7.conv3d.weight']
-            state_dict['Conv3d_1a_7x7.conv3d.weight'] = conv1_weights.mean(dim=1, keepdim=True)
+            if not cfg.model.n_input_channels == cfg.model.pre_n_input_channels:
+                conv1_weights = state_dict['Conv3d_1a_7x7.conv3d.weight']
+                state_dict['Conv3d_1a_7x7.conv3d.weight'] = conv1_weights.mean(dim=1, keepdim=True)
             model.load_state_dict(state_dict)
             model.replace_logits(cfg.model.n_classes)
         elif cfg.data_stream.type == 'flow':
@@ -55,13 +56,13 @@ def main(cfg: DictConfig) -> None:
 
 def create_data_loaders(cfg):
     # Create DataLoaders for training and validation
-    train_d_set = NPYDataset(cfg.data.data_folder, cfg.data.train_targets, cfg.transforms, cfg.augmentations,
+    train_d_set = NPYDataset(cfg.data.data_folder, cfg.data.train_targets, cfg.transforms, cfg.augmentations.train,
                              cfg.data.file_sep)
     train_data_loader = DataLoader(train_d_set, batch_size=cfg.data_loader.batch_size,
                                    num_workers=cfg.data_loader.n_workers, drop_last=cfg.data_loader.drop_last,
                                    shuffle=cfg.data_loader.shuffle)
 
-    val_d_set = NPYDataset(cfg.data.data_folder, cfg.data.val_targets, cfg.transforms, cfg.augmentations,
+    val_d_set = NPYDataset(cfg.data.data_folder, cfg.data.val_targets, cfg.transforms, cfg.augmentations.eval,
                            cfg.data.file_sep)
     val_data_loader = DataLoader(val_d_set, batch_size=cfg.data_loader.batch_size,
                                  num_workers=cfg.data_loader.n_workers, drop_last=cfg.data_loader.drop_last,

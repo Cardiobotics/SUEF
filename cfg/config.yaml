@@ -1,11 +1,11 @@
 defaults:
-  - data_stream: flow
+  - data_stream: img
   - model: i3d 
   - model_type: ${defaults.1.model}_${defaults.0.data_stream}
   - transforms: ${defaults.0.data_stream}
   - augmentations: ${defaults.0.data_stream}
   - data: base
-  - data_set: test
+  - data_set: 4c
 
 logging:
   logging_enabled: False
@@ -15,8 +15,9 @@ logging:
 performance:
   cuddn_auto_tuner: True
   parallel_mode: True
+  half_precision: True
   anomaly_detection: False
-  gradient_clipping: False
+  gradient_clipping: True
   gradient_clipping_max_norm: 32752
 
 data_loader:
@@ -24,14 +25,14 @@ data_loader:
   n_workers: 11
   custom_collate: False
   drop_last: True
-  shuffle: True
+  shuffle: False
 
 optimizer:
   learning_rate: 0.01
-  weight_decay: 0.0001
+  weight_decay: 0.001
 
 training:
-  epochs: 25
+  epochs: 50
   use_scheduler: True
   sched_step_size: 10
   sched_gamma: 0.1

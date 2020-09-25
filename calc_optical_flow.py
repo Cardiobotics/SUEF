@@ -18,9 +18,9 @@ def generate_flow(file):
     for i in range(len(data) - 1):
         nxt = data[i + 1]
         tv = cv2.optflow.createOptFlow_DualTVL1()
-        tv.setEpsilon(0.03)
-        tv.setWarpingsNumber(2)
-        tv.setScalesNumber(2)
+        tv.setEpsilon(0.05)
+        tv.setWarpingsNumber(1)
+        tv.setScalesNumber(1)
         tv_flow = tv.calc(prvs, nxt, None)
         #f_flow = cv2.calcOpticalFlowFarneback(prvs, nxt, None, 0.5, 3, 15, 3, 5, 1.2, 0)
         flows[i] = tv_flow
@@ -32,9 +32,9 @@ def generate_flow(file):
 
 
 parser = argparse.ArgumentParser(description='Converts input numpy grayscale data into optical flow')
-parser.add_argument('--input_folder', default='/media/ola/324ac400-018f-4d6b-941e-361b54f3e5f6/img/12', type=str,
+parser.add_argument('--input_folder', default='/media/ola/324ac400-018f-4d6b-941e-361b54f3e5f6/img/4', type=str,
                     help='Input folder containing videos in 3-dimensional npy format')
-parser.add_argument('--output_folder', default='/media/ola/324ac400-018f-4d6b-941e-361b54f3e5f6/flow/12',
+parser.add_argument('--output_folder', default='/media/ola/324ac400-018f-4d6b-941e-361b54f3e5f6/flow/4',
                     type=str, help='Output folder where we save the resulting optical flow')
 
 args = parser.parse_args()

@@ -4,6 +4,7 @@ from utils import AverageMeter
 from sklearn.metrics import r2_score
 import time
 from torch.cuda.amp import GradScaler
+from torch.cuda.amp import autocast
 import os
 import neptune
 import hydra
@@ -44,6 +45,12 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg):
         print("Available GPUS: {}".format(torch.cuda.device_count()))
         model = nn.DataParallel(model)
 
+    use_half_prec = cfg.performance.half_precision
+
+    if use_half_prec:
+        # Initialize GradScaler for autocasting
+        scaler = GradScaler()
+
     print('Model parameters: {}'.format(sum(p.numel() for p in model.parameters() if p.requires_grad)))
 
     mem_params = sum([param.nelement() * param.element_size() for param in model.parameters()])
@@ -63,9 +70,6 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg):
 
     # Set anomaly detection
     torch.autograd.set_detect_anomaly(cfg.performance.anomaly_detection)
-
-    # Initialize GradScaler for autocasting
-    scaler = GradScaler()
 
     # Begin training
 
@@ -87,9 +91,6 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg):
         for j, (inputs_t, targets_t) in enumerate(train_data_loader):
             # Update timer for data retrieval
             data_time_t.update(time.time() - end_time_t)
-
-            targets_t = targets_t.half()
-            inputs_t = inputs_t.half()
             
             # Move input to CUDA if available
             if cuda_available:
@@ -99,21 +100,34 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg):
             # Do forward and backwards pass
 
             # Get model train output and train loss
-            outputs_t = model(inputs_t)
-            loss_t = criterion(outputs_t, targets_t)
-
+            if use_half_prec:
+                with autocast():
+                    outputs_t = model(inputs_t)
+                    loss_t = criterion(outputs_t, targets_t)
+            else:
+                outputs_t = model(inputs_t)
+                loss_t = criterion(outputs_t, targets_t)
             # Backwards pass and step
             optimizer.zero_grad()
-            # Backwards pass
-            scaler.scale(loss_t).backward()
 
-            # Gradient Clipping
-            if gradient_clipping:
-                scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_value_(model.parameters(), max_norm)
+            if use_half_prec:
+                # Backwards pass
+                scaler.scale(loss_t).backward()
 
-            scaler.step(optimizer)
-            scaler.update()
+                # Gradient Clipping
+                if gradient_clipping:
+                    scaler.unscale_(optimizer)
+                    torch.nn.utils.clip_grad_value_(model.parameters(), max_norm)
+
+                scaler.step(optimizer)
+                scaler.update()
+
+            else:
+                loss_t.backward()
+                # Gradient Clipping
+                if gradient_clipping:
+                    torch.nn.utils.clip_grad_value_(model.parameters(), max_norm)
+                optimizer.step()
 
             # Update metrics
             r2_targets_t = targets_t.cpu().detach()
@@ -167,8 +181,13 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg):
                     inputs_v = inputs_v.to(device, non_blocking=True)
 
                 # Get model validation output and validation loss
-                outputs_v = model(inputs_v)
-                loss_v = criterion(outputs_v, targets_v)
+                if use_half_prec:
+                    with autocast():
+                        outputs_v = model(inputs_v)
+                        loss_v = criterion(outputs_v, targets_v)
+                else:
+                    outputs_v = model(inputs_v)
+                    loss_v = criterion(outputs_v, targets_v)
 
                 # Update metrics
                 r2_targets_v = targets_v.cpu().detach()
@@ -197,7 +216,7 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg):
               'Validation Loss: {loss.avg:.4f} \t '
               'Validation R2 score: {r2.avg:.3f} \t'
               .format(i+1, batch_time=batch_time_v, data_time=data_time_v, loss=losses_v, r2=r2_values_v))
-        print('Example targets: {} \n Example outputs: {}'.format(targets_v, outputs_v))
+        print('Example targets: {} \n Example outputs: {}'.format(torch.squeeze(targets_v), torch.squeeze(outputs_v)))
 
         if cfg.training.checkpointing_enabled:
             checkpoint_name = cfg.training.checkpoint_save_path + cfg.model.name + '_' + cfg.data_stream.type + '_' \

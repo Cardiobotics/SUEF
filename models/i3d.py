@@ -3,12 +3,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 from torch.cuda.amp import autocast
-
 import numpy as np
-
 import os
 import sys
 from collections import OrderedDict
+
 
 class MaxPool3dSamePadding(nn.MaxPool3d):
 
@@ -334,7 +333,7 @@ class InceptionI3d(nn.Module):
         if self._spatial_squeeze:
             logits = torch.squeeze(logits)
         # logits is batch X time X classes, which is what we want to work with
-        return logits
+        return logits.unsqueeze(1)
 
     def extract_features(self, x):
         for end_point in self.VALID_ENDPOINTS:

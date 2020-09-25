@@ -28,7 +28,7 @@ class NPYDataset(torch.utils.data.Dataset):
     def __getitem__(self, index):
         img, target = self.data_list[index]
         img = self.data_aug.transform_values(img)
-        return img.transpose(3, 0, 1, 2), target
+        return img.transpose(3, 0, 1, 2), np.expand_dims(target, axis=0).astype(np.float32)
 
     def load_data_into_mem(self):
         nprocs = mp.cpu_count()

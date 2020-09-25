@@ -1,9 +1,23 @@
 # @package augmentations
 
-gaussian_noise: False
-gn_var: 0.05
-speckle: False
-speckle_var: 0.05
-salt_and_pepper: False
-transpose_v: False
-transpose_h: False
+train:
+  gaussian_noise: False
+  gn_var: 0.05
+  speckle: False
+  speckle_var: 0.05
+  salt_and_pepper: False
+  transpose_v: False
+  transpose_v_max_len: 10
+  transpose_h: False
+  transpose_h_max_len: 10
+
+eval:
+  gaussian_noise: False
+  gn_var: 0.05
+  speckle: False
+  speckle_var: 0.05
+  salt_and_pepper: False
+  transpose_v: False
+  transpose_v_max_len: 10
+  transpose_h: False
+  transpose_h_max_len: 10

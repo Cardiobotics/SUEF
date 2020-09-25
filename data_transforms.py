@@ -4,6 +4,8 @@ from skimage.util import img_as_float32
 from skimage.util import crop
 from skimage.color import rgb2gray
 from skimage.transform import resize
+from random import choice
+from random import randint
 import time
 from omegaconf import OmegaConf, DictConfig
 import cv2
@@ -18,12 +20,30 @@ class DataAugmentations:
         self.debug = False
 
     def transform_values(self, img):
+        augments_noise = []
+        augments_shift = []
+
+        # Add some kind of noise to the image
+        if self.augmentations.gaussian_noise:
+            augments_noise.append(self.t_gaussian_noise)
+        if self.augmentations.speckle:
+            augments_noise.append(self.t_speckle)
+        if self.augmentations.salt_and_pepper:
+            augments_noise.append(self.t_salt_and_pepper)
+        if len(augments_noise) > 0:
+            img = choice(augments_noise)(img)
+
+        # Shift the image in some way
+        if self.augmentations.transpose_h:
+            augments_shift.append(self.t_transpose_h)
+        if self.augmentations.transpose_v:
+            augments_shift.append(self.t_transpose_v)
+        if len(augments_shift) > 0:
+            img = choice(augments_shift)(img)
+
         if self.transforms.normalize_input:
             img = self.t_normalize_signed(img)
-        if self.augmentations.gaussian_noise:
-            img = self.t_gaussian_noise(img)
-        if self.augmentations.speckle:
-            img = self.t_speckle(img)
+
         return img.astype(np.float32)
 
     def transform_size(self, img, fps):
@@ -61,14 +81,6 @@ class DataAugmentations:
             time_crop = time.time()
             time_crop_diff = time_crop - time_rescale
             print("Image size after cropping: {}, Time to process: {}".format(img.shape, time_crop_diff))
-        '''
-        if self.transforms.pad_size:
-            img = self.t_pad_size(img)
-        if self.debug:
-            time_pad = time.time()
-            time_pad_diff = time_pad - time_crop
-            print("Image size after size padding: {}, Time to process: {}".format(img.shape, time_pad_diff))
-        '''
         if self.transforms.loop_length:
             img = self.t_loop_length(img)
         if self.debug:
@@ -76,18 +88,17 @@ class DataAugmentations:
             time_loop_diff = time_loop - time_crop
             print("Image size after length looping: {}, Time to process: {}".format(img.shape, time_loop_diff))
         return img
-    
 
     def t_gaussian_noise(self, img):
         return random_noise(img, mode='gaussian', var=self.augmentations.gn_var)
 
-    def t_grayscale(self, img):
+    def t_grayscale_custom(self, img):
         # Luminence numbers for converting RGB to grayscale
         b = [0.2989, 0.5870, 0.1140]
         img = np.dot(img[..., :3], b)
         return np.expand_dims(img, axis=-1)
 
-    def t_grayscale_2(self, img):
+    def t_grayscale_cv2(self, img):
         new_img = np.zeros((img.shape[0], img.shape[1], img.shape[2]))
         for i, frame in enumerate(img):
             new_img[i] = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
@@ -143,3 +154,44 @@ class DataAugmentations:
         if self.transforms.crop_length and img.shape[0] > self.transforms.target_length:
             crop_sequence[0] = (0, img.shape[0] - self.transforms.target_length)
         return crop(img, crop_width=tuple(crop_sequence)).astype(np.uint8)
+
+    def t_transpose_v(self, video):
+        t_len = randint(-self.augmentations.transpose_v_max_len, self.augmentations.transpose_v_max_len + 1)
+
+        video = video.transpose(3, 0, 1, 2)
+
+        final_video = np.zeros(video.shape)
+        for i, channel in enumerate(video):
+            new_img = np.zeros(channel.shape)
+            for j, frame in enumerate(channel):
+                transposed_frame = np.zeros(frame.shape)
+                if t_len < 0:
+                    transposed_frame[0:t_len, :] = frame[-t_len:, :]
+                elif t_len > 0:
+                    transposed_frame[t_len:, :] = frame[0:-t_len, :]
+                else:
+                    transposed_frame = frame
+                new_img[j] = transposed_frame
+            final_video[i] = new_img
+
+        return final_video.transpose(1, 2, 3, 0)
+
+    def t_transpose_h(self, video):
+        t_len = randint(-self.augmentations.transpose_h_max_len, self.augmentations.transpose_h_max_len + 1)
+
+        video = video.transpose(3, 0, 1, 2)
+
+        final_video = np.zeros(video.shape)
+        for i, channel in enumerate(video):
+            new_img = np.zeros(channel.shape)
+            for j, frame in enumerate(channel):
+                transposed_frame = np.zeros(frame.shape)
+                if t_len < 0:
+                    transposed_frame[:, 0:t_len] = frame[:, -t_len:]
+                elif t_len > 0:
+                    transposed_frame[:, t_len:] = frame[:, 0:-t_len]
+                else:
+                    transposed_frame = frame
+                new_img[j] = transposed_frame
+            final_video[i] = new_img
+        return final_video.transpose(1, 2, 3, 0)
