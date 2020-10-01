@@ -1,14 +1,18 @@
 defaults:
-  - data_stream: img
   - model: i3d 
-  - model_type: ${defaults.1.model}_${defaults.0.data_stream}
-  - transforms: ${defaults.0.data_stream}
-  - augmentations: ${defaults.0.data_stream}
-  - data: base
-  - data_set: 4c
+  - model_type: ${defaults.0.model}_${data.type}
+  - transforms: ${data.type}
+  - augmentations: ${data.type}
+  - data_set: 2c
+
+data:
+  type: 2stream
+  file_sep: ;
+  base_data_folder: /media/ola/324ac400-018f-4d6b-941e-361b54f3e5f6
+  base_target_folder: /home/ola/Projects/SUEF/data
 
 logging:
-  logging_enabled: False
+  logging_enabled: True
   project_name: 'eiphodos/SUEF'
   experiment_name: 'i3d'
 
@@ -22,17 +26,17 @@ performance:
 
 data_loader:
   batch_size: 16
-  n_workers: 11
+  n_workers: 10
   custom_collate: False
   drop_last: True
-  shuffle: False
+  shuffle: True
 
 optimizer:
   learning_rate: 0.01
-  weight_decay: 0.001
+  weight_decay: 0.0001
 
 training:
-  epochs: 50
+  epochs: 30
   use_scheduler: True
   sched_step_size: 10
   sched_gamma: 0.1

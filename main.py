@@ -1,8 +1,6 @@
 import torch
 from torch.utils.data import DataLoader
-from models import custom_cnn
-from models import resnext
-from models import i3d
+from models import custom_cnn, resnext, i3d, i3d_bert
 from training import train_and_validate
 import neptune
 import hydra
@@ -13,8 +11,8 @@ from omegaconf import DictConfig, OmegaConf
 @hydra.main(config_path="cfg", config_name="config")
 def main(cfg: DictConfig) -> None:
 
-    assert cfg.model.name in ['ccnn', 'resnext', 'i3d']
-    assert cfg.data_stream.type in ['img', 'flow', '2stream']
+    assert cfg.model.name in ['ccnn', 'resnext', 'i3d', 'i3d_bert']
+    assert cfg.data.type in ['img', 'flow', '2stream']
 
     if cfg.model.name == 'ccnn':
         model = custom_cnn.CNN()
@@ -28,7 +26,7 @@ def main(cfg: DictConfig) -> None:
                                        conv1_t_stride=cfg.model.conv1_t_stride)
         model.load_state_dict(torch.load(cfg.model.pre_trained_checkpoint))
     elif cfg.model.name == 'i3d':
-        if cfg.data_stream.type == 'img':
+        if cfg.data.type == 'img':
             model = i3d.InceptionI3d(cfg.model.pre_n_classes, in_channels=cfg.model.n_input_channels)
             state_dict = torch.load(cfg.model.pre_trained_checkpoint)
             if not cfg.model.n_input_channels == cfg.model.pre_n_input_channels:
@@ -36,17 +34,28 @@ def main(cfg: DictConfig) -> None:
                 state_dict['Conv3d_1a_7x7.conv3d.weight'] = conv1_weights.mean(dim=1, keepdim=True)
             model.load_state_dict(state_dict)
             model.replace_logits(cfg.model.n_classes)
-        elif cfg.data_stream.type == 'flow':
+        elif cfg.data.type == 'flow':
             model = i3d.InceptionI3d(cfg.model.pre_n_classes, in_channels=cfg.model.n_input_channels)
             state_dict = torch.load(cfg.model.pre_trained_checkpoint)
             model.load_state_dict(state_dict)
             model.replace_logits(cfg.model.n_classes)
+    elif cfg.model.name == 'i3d_bert':
+        state_dict = torch.load(cfg.model.pre_trained_checkpoint)
+        if cfg.data.type == 'img':
+            model = i3d_bert.rgb_I3D64f_bert2_FRMB(cfg.model.pre_n_classes, cfg.model.length , cfg.model.n_input_channels)
+            if not cfg.model.n_input_channels == cfg.model.pre_n_input_channels:
+                conv1_weights = state_dict['Conv3d_1a_7x7.conv3d.weight']
+                state_dict['Conv3d_1a_7x7.conv3d.weight'] = conv1_weights.mean(dim=1, keepdim=True)
+        if cfg.data.type == 'flow':
+            model = i3d_bert.flow_I3D64f_bert2_FRMB(cfg.model.pre_n_classes, cfg.model.length , cfg.model.n_input_channels)
+        model.load_state_dict(state_dict)
+        model.replace_logits(cfg.model.n_classes)
 
     if cfg.logging.logging_enabled:
         neptune.init(cfg.logging.project_name)
         experiment_params = {**dict(cfg.data_loader), **dict(cfg.transforms), **dict(cfg.augmentations),
                              **dict(cfg.performance), **dict(cfg.training), **dict(cfg.optimizer), **dict(cfg.model),
-                             'data_stream': cfg.data_stream.type, 'view': cfg.data.name}
+                             'data_stream': cfg.data.type, 'view': cfg.data.name}
         neptune.create_experiment(name=cfg.logging.experiment_name, params=experiment_params)
 
     train_data_loader, val_data_loader = create_data_loaders(cfg)

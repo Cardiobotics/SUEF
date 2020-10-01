@@ -1,4 +1,3 @@
-from npy_dataset import NPYDataset
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -6,7 +5,7 @@ from sklearn.metrics import r2_score
 import hydra
 from utils import AverageMeter
 import os
-from models import i3d, ensemble
+from models import i3d
 from omegaconf import DictConfig, OmegaConf
 from npy_dataset import NPYDataset
 import neptune
@@ -22,8 +21,8 @@ def main(cfg: DictConfig) -> None:
                              'data_stream': cfg.data_stream.type, 'view': cfg.data.name}
         neptune.create_experiment(name=cfg.logging.experiment_name, params=experiment_params)
 
-    model_i3d_img_2c = i3d.InceptionI3d(cfg.model.n_classes, in_channels=cfg.model.n_input_channels_img)
-    model_i3d_flow_2c = i3d.InceptionI3d(cfg.model.n_classes, in_channels=cfg.model.n_input_channels_flow)
+    model_i3d_img = i3d.InceptionI3d(cfg.model.n_classes, in_channels=cfg.model.n_input_channels_img)
+    model_i3d_flow = i3d.InceptionI3d(cfg.model.n_classes, in_channels=cfg.model.n_input_channels_flow)
 
     # Set visible devices
     parallel_model = cfg.performance.parallel_mode
@@ -36,36 +35,36 @@ def main(cfg: DictConfig) -> None:
     else:
         device = torch.device('cpu')
 
-    model_i3d_img_2c.to(device)
-    model_i3d_flow_2c.to(device)
+    model_i3d_img.to(device)
+    model_i3d_flow.to(device)
 
     checkpoint_img = torch.load(cfg.model.pre_trained_checkpoint_img)
-    model_i3d_img_2c.load_state_dict(checkpoint_img['model'])
+    model_i3d_img.load_state_dict(checkpoint_img['model'])
 
     checkpoint_flow = torch.load(cfg.model.pre_trained_checkpoint_flow)
-    model_i3d_flow_2c.load_state_dict(checkpoint_flow['model'])
+    model_i3d_flow.load_state_dict(checkpoint_flow['model'])
 
     if parallel_model:
         print("Available GPUS: {}".format(torch.cuda.device_count()))
-        model_i3d_img_2c = nn.DataParallel(model_i3d_img_2c)
-        model_i3d_flow_2c = nn.DataParallel(model_i3d_flow_2c)
+        model_i3d_img = nn.DataParallel(model_i3d_img)
+        model_i3d_flow = nn.DataParallel(model_i3d_flow)
 
-    for a in model_i3d_img_2c.parameters():
+    for a in model_i3d_img.parameters():
         a.requires_grad = False
-    for b in model_i3d_flow_2c.parameters():
+    for b in model_i3d_flow.parameters():
         b.requires_grad = False
 
-    model_i3d_img_2c.eval()
-    model_i3d_flow_2c.eval()
+    model_i3d_img.eval()
+    model_i3d_flow.eval()
 
     # Set loss criterion
     criterion = nn.MSELoss()
 
-    val_data_img = NPYDataset('/media/ola/324ac400-018f-4d6b-941e-361b54f3e5f6/img/20',
-                              '/home/ola/Projects/SUEF/data/val_targets_img_20.csv', cfg.transforms,
+    val_data_img = NPYDataset('/media/ola/324ac400-018f-4d6b-941e-361b54f3e5f6/img/2',
+                              '/home/ola/Projects/SUEF/data/val_targets_img_2.csv', cfg.transforms,
                               cfg.augmentations.eval, cfg.data.file_sep)
-    val_data_flow = NPYDataset('/media/ola/324ac400-018f-4d6b-941e-361b54f3e5f6/flow/20',
-                               '/home/ola/Projects/SUEF/data/val_targets_flow_20.csv', cfg.transforms,
+    val_data_flow = NPYDataset('/media/ola/324ac400-018f-4d6b-941e-361b54f3e5f6/flow/2',
+                               '/home/ola/Projects/SUEF/data/val_targets_flow_2.csv', cfg.transforms,
                                cfg.augmentations.eval, cfg.data.file_sep)
 
     val_data_loader_img = DataLoader(val_data_img, batch_size=cfg.data_loader.batch_size,
@@ -82,7 +81,7 @@ def main(cfg: DictConfig) -> None:
     flow_r2 = AverageMeter()
     avg_r2 = AverageMeter()
 
-    for (img_inputs, img_targets), (flow_inputs, flow_targets) in zip(val_data_loader_img, val_data_loader_flow):
+    for (img_inputs, img_targets, _), (flow_inputs, flow_targets, _) in zip(val_data_loader_img, val_data_loader_flow):
         assert torch.eq(img_targets, flow_targets).all()
 
         targets = img_targets
@@ -99,8 +98,8 @@ def main(cfg: DictConfig) -> None:
             flow_inputs = flow_inputs.to(device, non_blocking=True)
 
         with torch.no_grad():
-            flow_outputs = model_i3d_flow_2c(flow_inputs)
-            img_outputs = model_i3d_img_2c(img_inputs)
+            flow_outputs = model_i3d_flow(flow_inputs)
+            img_outputs = model_i3d_img(img_inputs)
 
         avg_outputs = (flow_outputs + img_outputs)/2
 

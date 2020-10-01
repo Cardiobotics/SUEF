@@ -1,0 +1,7 @@
+# @package model
+
+name: i3d
+
+n_classes: 1
+pre_n_classes: 400
+length: 1

@@ -1,0 +1,8 @@
+# @package model
+
+pre_trained_checkpoint_flow: /home/ola/Projects/SUEF/saved_models/i3d_bert_flow_${data.name}.pth
+pre_trained_checkpoint_img: /home/ola/Projects/SUEF/saved_models/i3d_bert_img_${data.name}.pth
+
+n_classes: 1
+n_input_channels_img: 1
+n_input_channels_flow: 2

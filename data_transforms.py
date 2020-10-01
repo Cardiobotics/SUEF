@@ -4,6 +4,7 @@ from skimage.util import img_as_float32
 from skimage.util import crop
 from skimage.color import rgb2gray
 from skimage.transform import resize
+from skimage.transform import rotate
 from random import choice
 from random import randint
 import time
@@ -20,29 +21,26 @@ class DataAugmentations:
         self.debug = False
 
     def transform_values(self, img):
-        augments_noise = []
-        augments_shift = []
+
+        # Pixel values expected to be in range 0-255
+        if self.transforms.normalize_input:
+            img = self.t_normalize_signed(img)
 
         # Add some kind of noise to the image
         if self.augmentations.gaussian_noise:
-            augments_noise.append(self.t_gaussian_noise)
+            img = self.t_gaussian_noise(img)
         if self.augmentations.speckle:
-            augments_noise.append(self.t_speckle)
+            img = self.t_speckle(img)
         if self.augmentations.salt_and_pepper:
-            augments_noise.append(self.t_salt_and_pepper)
-        if len(augments_noise) > 0:
-            img = choice(augments_noise)(img)
+            img = self.t_salt_and_pepper(img)
 
         # Shift the image in some way
-        if self.augmentations.transpose_h:
-            augments_shift.append(self.t_transpose_h)
-        if self.augmentations.transpose_v:
-            augments_shift.append(self.t_transpose_v)
-        if len(augments_shift) > 0:
-            img = choice(augments_shift)(img)
-
-        if self.transforms.normalize_input:
-            img = self.t_normalize_signed(img)
+        if self.augmentations.translate_h:
+            img = self.t_translate_h(img)
+        if self.augmentations.translate_v:
+            img = self.t_translate_v(img)
+        if self.augmentations.rotate:
+            img = self.t_rotate(img)
 
         return img.astype(np.float32)
 
@@ -89,9 +87,6 @@ class DataAugmentations:
             print("Image size after length looping: {}, Time to process: {}".format(img.shape, time_loop_diff))
         return img
 
-    def t_gaussian_noise(self, img):
-        return random_noise(img, mode='gaussian', var=self.augmentations.gn_var)
-
     def t_grayscale_custom(self, img):
         # Luminence numbers for converting RGB to grayscale
         b = [0.2989, 0.5870, 0.1140]
@@ -114,14 +109,31 @@ class DataAugmentations:
     def t_normalize_signed(self, img):
         return ((img / 255.) * 2 - 1).astype(np.float32)
 
+    def t_gaussian_noise(self, img):
+        return random_noise(img, mode='gaussian', var=self.augmentations.gn_var)
+
     def t_salt_and_pepper(self, img):
-        return random_noise(img, mode='s&p')
+        return random_noise(img, mode='s&p', amount=self.augmentations.salt_and_pepper_amount)
 
     def t_speckle(self, img):
         return random_noise(img, mode='speckle', var=self.augmentations.speckle_var)
 
     def t_resize(self, img, target_length, target_height, target_width):
         return resize(img, (target_length, target_height, target_width), mode='constant', cval=0, preserve_range=True,
+                      anti_aliasing=False).astype(np.uint8)
+
+    def calc_fph(self, hr, fps):
+        hbs = hr/60
+        fph = int(fps / hbs)
+        return fph
+
+    def t_resize_hb(self, img, hr, fps, target_length, target_height, target_width):
+        img_len = len(img)
+        fph = self.calc_fph(img_len, hr, fps)
+        diff = img_len - fph
+        rndm = randint(0, diff+1)
+        hb = img[rndm: fph + rndm]
+        return resize(hb, (target_length, target_height, target_width), mode='constant', cval=0, preserve_range=True,
                       anti_aliasing=False).astype(np.uint8)
 
     def t_pad_size(self, img):
@@ -152,11 +164,13 @@ class DataAugmentations:
             crop_sequence[1] = (int(img.shape[1] / 10), int(img.shape[1] / 10))
             crop_sequence[2] = (int(img.shape[2] / 20), int(img.shape[2] / 20))
         if self.transforms.crop_length and img.shape[0] > self.transforms.target_length:
-            crop_sequence[0] = (0, img.shape[0] - self.transforms.target_length)
+            diff = img.shape[0] - self.transforms.target_length
+            rand = randint(0, diff + 1)
+            crop_sequence[0] = (rand, diff - rand)
         return crop(img, crop_width=tuple(crop_sequence)).astype(np.uint8)
 
-    def t_transpose_v(self, video):
-        t_len = randint(-self.augmentations.transpose_v_max_len, self.augmentations.transpose_v_max_len + 1)
+    def t_translate_v(self, video):
+        t_len = int(np.random.normal(0, self.augmentations.translate_v_std_dev_pxl))
 
         video = video.transpose(3, 0, 1, 2)
 
@@ -164,20 +178,20 @@ class DataAugmentations:
         for i, channel in enumerate(video):
             new_img = np.zeros(channel.shape)
             for j, frame in enumerate(channel):
-                transposed_frame = np.zeros(frame.shape)
+                translated_frame = np.zeros(frame.shape)
                 if t_len < 0:
-                    transposed_frame[0:t_len, :] = frame[-t_len:, :]
+                    translated_frame[0:t_len, :] = frame[-t_len:, :]
                 elif t_len > 0:
-                    transposed_frame[t_len:, :] = frame[0:-t_len, :]
+                    translated_frame[t_len:, :] = frame[0:-t_len, :]
                 else:
-                    transposed_frame = frame
-                new_img[j] = transposed_frame
+                    translated_frame = frame
+                new_img[j] = translated_frame
             final_video[i] = new_img
 
         return final_video.transpose(1, 2, 3, 0)
 
-    def t_transpose_h(self, video):
-        t_len = randint(-self.augmentations.transpose_h_max_len, self.augmentations.transpose_h_max_len + 1)
+    def t_translate_h(self, video):
+        t_len = int(np.random.normal(0, self.augmentations.translate_h_std_dev_pxl))
 
         video = video.transpose(3, 0, 1, 2)
 
@@ -185,13 +199,28 @@ class DataAugmentations:
         for i, channel in enumerate(video):
             new_img = np.zeros(channel.shape)
             for j, frame in enumerate(channel):
-                transposed_frame = np.zeros(frame.shape)
+                translated_frame = np.zeros(frame.shape)
                 if t_len < 0:
-                    transposed_frame[:, 0:t_len] = frame[:, -t_len:]
+                    translated_frame[:, 0:t_len] = frame[:, -t_len:]
                 elif t_len > 0:
-                    transposed_frame[:, t_len:] = frame[:, 0:-t_len]
+                    translated_frame[:, t_len:] = frame[:, 0:-t_len]
                 else:
-                    transposed_frame = frame
-                new_img[j] = transposed_frame
+                    translated_frame = frame
+                new_img[j] = translated_frame
             final_video[i] = new_img
         return final_video.transpose(1, 2, 3, 0)
+
+    def t_rotate(self, video):
+        t_rotation = np.random.normal(0, self.augmentations.rotate_std_dev_degrees)
+
+        video = video.transpose(3, 0, 1, 2)
+
+        final_video = np.zeros(video.shape)
+        for i, channel in enumerate(video):
+            new_img = np.zeros(channel.shape)
+            for j, frame in enumerate(channel):
+                rotated_frame = rotate(frame, t_rotation, resize=False, mode='constant', cval=0, preserve_range=True)
+                new_img[j] = rotated_frame
+            final_video[i] = new_img
+        return final_video.transpose(1, 2, 3, 0)
+

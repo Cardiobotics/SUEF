@@ -11,7 +11,7 @@ import hydra
 from omegaconf import DictConfig, OmegaConf
 
 
-def train_and_validate(model, train_data_loader, val_data_loader, cfg):
+def train_and_validate(img_model, flow_model, train_data_loader, val_data_loader, cfg):
 
     # Set visible devices
     parallel_model = cfg.performance.parallel_mode
@@ -19,48 +19,64 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg):
     # Set cuda
     cuda_available = torch.cuda.is_available()
     if cuda_available:
-        #torch.cuda.empty_cache()
+        # torch.cuda.empty_cache()
         device = torch.device('cuda')
     else:
         device = torch.device('cpu')
-    model.to(device)
+    img_model.to(device)
+    flow_model.to(device)
 
     # CUDNN Auto-tuner. Use True when input size and model is static
     torch.backends.cudnn.benchmark = cfg.performance.cuddn_auto_tuner
 
     if cfg.training.freeze_lower:
-        for p in model.parameters():
+        for p in img_model.parameters():
             p.requires_grad = False
-        model.logits.conv3d.weight.requires_grad = True
-        model.logits.conv3d.bias.requires_grad = True
+        img_model.logits.conv3d.weight.requires_grad = True
+        img_model.logits.conv3d.bias.requires_grad = True
+        for p in flow_model.parameters():
+            p.requires_grad = False
+        flow_model.logits.conv3d.weight.requires_grad = True
+        flow_model.logits.conv3d.bias.requires_grad = True
 
     # Set loss criterion
     criterion = nn.MSELoss()
 
     # Set optimizer
-    optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()),
-                                 lr=cfg.optimizer.learning_rate, weight_decay=cfg.optimizer.weight_decay)
+    img_optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, img_model.parameters()),
+                                      lr=cfg.optimizer.learning_rate, weight_decay=cfg.optimizer.weight_decay)
+    flow_optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, flow_model.parameters()),
+                                       lr=cfg.optimizer.learning_rate, weight_decay=cfg.optimizer.weight_decay)
     if parallel_model:
         print("Available GPUS: {}".format(torch.cuda.device_count()))
-        model = nn.DataParallel(model)
+        img_model = nn.DataParallel(img_model)
+        flow_model = nn.DataParallel(flow_model)
 
     use_half_prec = cfg.performance.half_precision
 
     # Initialize GradScaler for autocasting
     scaler = GradScaler(enabled=use_half_prec)
 
-    print('Model parameters: {}'.format(sum(p.numel() for p in model.parameters() if p.requires_grad)))
+    print('Img Model parameters: {}'.format(sum(p.numel() for p in img_model.parameters() if p.requires_grad)))
+    print('Flow Model parameters: {}'.format(sum(p.numel() for p in flow_model.parameters() if p.requires_grad)))
 
-    mem_params = sum([param.nelement() * param.element_size() for param in model.parameters()])
-    mem_buffs = sum([buf.nelement() * buf.element_size() for buf in model.buffers()])
+    mem_params = sum([param.nelement() * param.element_size() for param in img_model.parameters()])
+    mem_buffs = sum([buf.nelement() * buf.element_size() for buf in img_model.buffers()])
     mem = mem_params + mem_buffs  # in bytes
-    print('Model memory size: {}'.format(mem))
+    print('Img Model memory size: {}'.format(mem))
+
+    mem_params = sum([param.nelement() * param.element_size() for param in flow_model.parameters()])
+    mem_buffs = sum([buf.nelement() * buf.element_size() for buf in flow_model.buffers()])
+    mem = mem_params + mem_buffs  # in bytes
+    print('Img Model memory size: {}'.format(mem))
 
     # Initialize scheduler
     use_scheduler = cfg.training.use_scheduler
     if use_scheduler:
-        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=cfg.training.sched_step_size,
-                                                    gamma=cfg.training.sched_gamma)
+        img_scheduler = torch.optim.lr_scheduler.StepLR(img_optimizer, step_size=cfg.training.sched_step_size,
+                                                        gamma=cfg.training.sched_gamma)
+        flow_scheduler = torch.optim.lr_scheduler.StepLR(flow_optimizer, step_size=cfg.training.sched_step_size,
+                                                         gamma=cfg.training.sched_gamma)
 
     # Maximum value used for gradient clipping = max fp16/2
     gradient_clipping = cfg.performance.gradient_clipping
@@ -85,34 +101,43 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg):
 
         end_time_t = time.time()
         # Training
-        model.train()
-        for j, (inputs_t, targets_t, _) in enumerate(train_data_loader):
+        img_model.train()
+        flow_model.train()
+        for j, (img_inputs_t, flow_inputs_t, targets_t) in enumerate(train_data_loader):
             # Update timer for data retrieval
             data_time_t.update(time.time() - end_time_t)
-            
+
             # Move input to CUDA if available
             if cuda_available:
                 targets_t = targets_t.to(device, non_blocking=True)
-                inputs_t = inputs_t.to(device, non_blocking=True)
+                img_inputs_t = img_inputs_t.to(device, non_blocking=True)
+                flow_inputs_t = flow_inputs_t.to(device, non_blocking=True)
 
             # Do forward and backwards pass
 
             # Get model train output and train loss
             with autocast(enabled=use_half_prec):
-                outputs_t = model(inputs_t)
+                img_outputs_t = img_model(img_inputs_t)
+                flow_outputs_t = flow_model(flow_inputs_t)
+                outputs_t = (img_outputs_t + flow_outputs_t) / 2
                 loss_t = criterion(outputs_t, targets_t)
+
             # Backwards pass and step
-            optimizer.zero_grad()
+            img_optimizer.zero_grad()
+            flow_optimizer.zero_grad()
 
             # Backwards pass
             scaler.scale(loss_t).backward()
 
             # Gradient Clipping
             if gradient_clipping:
-                scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_value_(model.parameters(), max_norm)
+                scaler.unscale_(img_optimizer)
+                scaler.unscale_(flow_optimizer)
+                torch.nn.utils.clip_grad_value_(img_model.parameters(), max_norm)
+                torch.nn.utils.clip_grad_value_(flow_model.parameters(), max_norm)
 
-            scaler.step(optimizer)
+            scaler.step(img_optimizer)
+            scaler.step(flow_optimizer)
             scaler.update()
 
             # Update metrics
@@ -131,38 +156,42 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg):
                       'Training Data Time: {data_time.val:.3f} ({data_time.avg:.3f}) \t '
                       'Training Loss: {loss.val:.4f} ({loss.avg:.4f}) \t '
                       'Training R2 Score: {r2.val:.3f} ({r2.avg:.3f}) \t'
-                      .format(j+1, len(train_data_loader), i + 1, batch_time=batch_time_t, data_time=data_time_t,
+                      .format(j + 1, len(train_data_loader), i + 1, batch_time=batch_time_t, data_time=data_time_t,
                               loss=losses_t, r2=r2_values_t))
 
             # Reset end timer
             end_time_t = time.time()
-        
+
         # End of training epoch prints and updates
         print('Finished Training Epoch: {} \t '
               'Training Time: {batch_time.avg:.3f} \t '
               'Training Data Time: {data_time.avg:.3f}) \t '
               'Training Loss: {loss.avg:.4f} \t '
               'Training R2 score: {r2.avg:.3f} \t'
-              .format(i+1, batch_time=batch_time_t, data_time=data_time_t, loss=losses_t, r2=r2_values_t))
+              .format(i + 1, batch_time=batch_time_t, data_time=data_time_t, loss=losses_t, r2=r2_values_t))
         end_time_v = time.time()
         if use_scheduler:
-            scheduler.step()
-
+            img_scheduler.step()
+            flow_scheduler.step()
 
         # Validation
-        model.eval()
-        for k, (inputs_v, targets_v, _) in enumerate(val_data_loader):
+        img_model.eval()
+        flow_model.eval()
+        for k, (img_inputs_v, flow_inputs_v, targets_v) in enumerate(val_data_loader):
             # Update timer for data retrieval
             data_time_v.update(time.time() - end_time_v)
 
             # Move input to CUDA if available
             if cuda_available:
                 targets_v = targets_v.to(device, non_blocking=True)
-                inputs_v = inputs_v.to(device, non_blocking=True)
+                img_inputs_v = img_inputs_v.to(device, non_blocking=True)
+                flow_inputs_v = flow_inputs_v.to(device, non_blocking=True)
             with torch.no_grad():
-            # Get model validation output and validation loss
+                # Get model validation output and validation loss
                 with autocast(enabled=use_half_prec):
-                    outputs_v = model(inputs_v)
+                    img_outputs_v = img_model(img_inputs_v)
+                    flow_outputs_v = flow_model(flow_inputs_v)
+                    outputs_v = (img_outputs_v + flow_outputs_v) / 2
                     loss_v = criterion(outputs_v, targets_v)
 
             # Update metrics
@@ -191,16 +220,17 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg):
               'Validation Data Time: {data_time.avg:.3f} \t '
               'Validation Loss: {loss.avg:.4f} \t '
               'Validation R2 score: {r2.avg:.3f} \t'
-              .format(i+1, batch_time=batch_time_v, data_time=data_time_v, loss=losses_v, r2=r2_values_v))
+              .format(i + 1, batch_time=batch_time_v, data_time=data_time_v, loss=losses_v, r2=r2_values_v))
         print('Example targets: {} \n Example outputs: {}'.format(torch.squeeze(targets_v), torch.squeeze(outputs_v)))
 
         if cfg.logging.logging_enabled:
             log_metrics(losses_v.avg, r2_values_v.avg)
 
     if cfg.training.checkpointing_enabled:
-        checkpoint_name = cfg.training.checkpoint_save_path + cfg.model.name + '_' + cfg.data_stream.type + '_' \
-                          + cfg.data.name + '.pth'
-        save_checkpoint(checkpoint_name, model, optimizer, scheduler)
+        img_checkpoint_name = cfg.training.checkpoint_save_path + cfg.model.name + '_' + cfg.data_stream.type + '_' + cfg.data.name + '_img.pth'
+        flow_checkpoint_name = cfg.training.checkpoint_save_path + cfg.model.name + '_' + cfg.data_stream.type + '_' + cfg.data.name + '_flow.pth'
+        save_checkpoint(img_checkpoint_name, img_model, img_optimizer, img_scheduler)
+        save_checkpoint(flow_checkpoint_name, flow_model, flow_optimizer, flow_scheduler)
 
 
 def log_metrics(loss, r2):

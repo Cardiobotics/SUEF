@@ -2,22 +2,27 @@
 
 train:
   gaussian_noise: True
-  gn_var: 0.1
+  gn_var: 0.005
   speckle: True
-  speckle_var: 0.1
+  speckle_var: 0.005
   salt_and_pepper: True
-  transpose_v: True
-  transpose_v_max_len: 10
-  transpose_h: True
-  transpose_h_max_len: 10
+  salt_and_pepper_amount: 0.01 
+  translate_v: False
+  translate_v_std_dev_pxl: 3
+  translate_h: False
+  translate_h_std_dev_pxl: 3
+  rotate: True
+  rotate_std_dev_degrees: 10
 
 eval:
   gaussian_noise: False
-  gn_var: 0.05
+  gn_var: 0.01
   speckle: False
-  speckle_var: 0.05
+  speckle_var: 0.01
   salt_and_pepper: False
-  transpose_v: False
-  transpose_v_max_len: 10
-  transpose_h: False
-  transpose_h_max_len: 10
+  translate_v: False
+  translate_v_std_dev_pxl: 5
+  translate_h: False
+  translate_h_std_dev_pxl: 5
+  rotate: False
+  rotate_std_dev_degrees: 10
