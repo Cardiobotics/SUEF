@@ -1,6 +1,6 @@
 import torch.nn as nn
 import torch
-
+from torch.cuda.amp import autocast
 
 class LayerNorm(nn.Module):
     "Construct a layernorm module (See citation for details)."
@@ -11,6 +11,7 @@ class LayerNorm(nn.Module):
         self.b_2 = nn.Parameter(torch.zeros(features))
         self.eps = eps
 
+    @autocast(enabled=False)
     def forward(self, x):
         mean = x.mean(-1, keepdim=True)
         std = x.std(-1, keepdim=True)

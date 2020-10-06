@@ -1,5 +1,5 @@
 import torch.nn as nn
-
+from torch.cuda.amp import autocast
 from .attention import MultiHeadedAttention, MultiHeadedAttention2
 from .utils import SublayerConnection, PositionwiseFeedForward, SublayerConnection2
 
@@ -25,6 +25,7 @@ class TransformerBlock(nn.Module):
         self.output_sublayer = SublayerConnection(size=hidden, dropout=dropout)
         self.dropout = nn.Dropout(p=dropout)
 
+    @autocast(enabled=False)
     def forward(self, x, mask):
         x = self.input_sublayer(x, lambda _x: self.attention.forward(_x, _x, _x, mask=mask))
         x = self.output_sublayer(x, self.feed_forward)
@@ -52,6 +53,7 @@ class TransformerBlock2(nn.Module):
         self.output_sublayer = SublayerConnection(size=hidden, dropout=dropout)
         self.dropout = nn.Dropout(p=dropout)
 
+    @autocast(enabled=False)
     def forward(self, x_rgb, x_flow, mask):
         x_rgb, x_flow = self.input_sublayer(x_rgb, x_flow, mask, self.attention)
         x_rgb = self.output_sublayer(x_rgb, self.feed_forward_rgb)

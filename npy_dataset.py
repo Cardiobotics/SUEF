@@ -7,16 +7,17 @@ import multiprocessing as mp
 
 
 class NPYDataset(torch.utils.data.Dataset):
-    def __init__(self, folder, target_file, transforms, augmentations, file_sep, allowed_views):
+    def __init__(self, cfg_data, cfg_transforms, cfg_augmentations, target_file):
         super(NPYDataset).__init__()
 
-        self.targets = pd.read_csv(os.path.abspath(target_file), sep=file_sep)
-        if transforms.scale_output:
+        self.targets = pd.read_csv(os.path.abspath(target_file), sep=cfg_data.file_sep)
+        if cfg_transforms.scale_output:
             self.targets['target'] = self.targets['target'].apply(lambda x: x / 100)
-        self.targets = self.targets[self.targets['view'].isin(allowed_views)]
-        self.data_aug = data_transforms.DataAugmentations(transforms, augmentations)
+        self.targets = self.targets[self.targets['view'].isin(cfg_data.allowed_views)]
+        self.data_aug = data_transforms.DataAugmentations(cfg_transforms, cfg_augmentations)
+        self.data_type = cfg_data.type
         self.data_list = []
-        self.base_folder = folder
+        self.base_folder = cfg_data.data_folder
         self.load_data_into_mem()
 
     def __len__(self):
@@ -40,7 +41,11 @@ class NPYDataset(torch.utils.data.Dataset):
         print('All data loaded into memory')
 
     def read_image_data(self, data):
-        uid, _, _, fps, hr, target, file = data
+        uid, _, _, fps, hr, file_img, file_flow, target = data
+        if self.data_type == 'flow':
+            file = file_flow
+        elif self.data_type == 'img':
+            file = file_img
         fp = os.path.join(os.path.join(self.base_folder, uid), file)
         try:
             img = np.load(fp, allow_pickle=True)

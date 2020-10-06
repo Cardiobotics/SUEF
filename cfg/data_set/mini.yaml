@@ -1,0 +1,9 @@
+# @package data
+
+name: Mini
+label: mini
+view_label: 0
+
+train_targets: ${data.base_target_folder}/mini_data.csv
+val_targets: ${data.base_target_folder}/mini_data.csv
+test_targets: ${data.base_target_folder}/mini_data.csv

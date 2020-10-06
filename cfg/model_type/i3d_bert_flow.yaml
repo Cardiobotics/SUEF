@@ -1,6 +1,6 @@
 # @package model
 
-pre_trained_checkpoint: /home/ola/Projects/SUEF/pretrained_models/i3d_bert_flow_imagenet.pt
+pre_trained_checkpoint: /home/ola/Projects/SUEF/pretrained_models/i3d_bert_flow_imagenet.pth
 
 n_input_channels: 2
 pre_n_input_channels: 2

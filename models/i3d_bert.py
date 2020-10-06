@@ -7,6 +7,7 @@ Created on Thu Nov 28 14:39:52 2019
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.cuda.amp import autocast
 
 import numpy as np
 
@@ -34,6 +35,7 @@ class rgb_I3D64f(nn.Module):
         torch.nn.init.xavier_uniform_(self.fc_action.weight)
         self.fc_action.bias.data.zero_()
 
+    @autocast(enabled=False)
     def forward(self, x):
         x = self.features(x)
         x = self.avgpool(x)
@@ -59,6 +61,7 @@ class flow_I3D64f(nn.Module):
         torch.nn.init.xavier_uniform_(self.fc_action.weight)
         self.fc_action.bias.data.zero_()
 
+    @autocast(enabled=False)
     def forward(self, x):
         x = self.features(x)
         x = self.avgpool(x)
@@ -84,6 +87,7 @@ class rgb_resnet50I3D64f(nn.Module):
         torch.nn.init.xavier_uniform_(self.fc_action.weight)
         self.fc_action.bias.data.zero_()
 
+    @autocast(enabled=False)
     def forward(self, x):
         x = self.features(x)
         x = self.avgpool(x)
@@ -94,7 +98,7 @@ class rgb_resnet50I3D64f(nn.Module):
 
 
 class rgb_I3D64f_bert2(nn.Module):
-    def __init__(self, num_classes, length, num_channels):
+    def __init__(self, checkpoint, num_classes, length, num_channels):
         super(rgb_I3D64f_bert2, self).__init__()
         self.hidden_size = 1024
         self.n_layers = 1
@@ -103,7 +107,7 @@ class rgb_I3D64f_bert2(nn.Module):
         self.length = length
         self.dp = nn.Dropout(p=0.8)
 
-        self.features = nn.Sequential(*list(_inception(num_classes, num_channels).children())[3:])
+        self.features = nn.Sequential(*list(_inception(checkpoint, num_classes, num_channels).children())[3:])
 
         for param in self.features.parameters():
             param.requires_grad = True
@@ -117,12 +121,13 @@ class rgb_I3D64f_bert2(nn.Module):
         torch.nn.init.xavier_uniform_(self.fc_action.weight)
         self.fc_action.bias.data.zero_()
 
+    @autocast(enabled=False)
     def forward(self, x):
         x = self.features(x)
         x = self.avgpool(x)
         x = x.view(x.size(0), self.hidden_size, 8)
         x = x.transpose(1, 2)
-        norm = x.norm(p=2, dim=-1, keepdim=True)
+        norm = torch.linalg.norm(x, ord=2, dim=-1, keepdim=True)
         x = x.div(norm)
         input_vectors = x
         output, maskSample = self.bert(x)
@@ -134,7 +139,7 @@ class rgb_I3D64f_bert2(nn.Module):
 
 
 class flow_I3D64f_bert2(nn.Module):
-    def __init__(self, num_classes, length, num_channels):
+    def __init__(self, checkpoint, num_classes, length, num_channels):
         super(flow_I3D64f_bert2, self).__init__()
         self.hidden_size = 1024
         self.n_layers = 1
@@ -143,7 +148,7 @@ class flow_I3D64f_bert2(nn.Module):
         self.length = length
         self.dp = nn.Dropout(p=0.8)
 
-        self.features = nn.Sequential(*list(_inception_flow(num_classes, num_channels).children())[3:])
+        self.features = nn.Sequential(*list(_inception_flow(checkpoint, num_classes, num_channels).children())[3:])
 
         for param in self.features.parameters():
             param.requires_grad = True
@@ -157,12 +162,13 @@ class flow_I3D64f_bert2(nn.Module):
         torch.nn.init.xavier_uniform_(self.fc_action.weight)
         self.fc_action.bias.data.zero_()
 
+    @autocast(enabled=False)
     def forward(self, x):
         x = self.features(x)
         x = self.avgpool(x)
         x = x.view(x.size(0), self.hidden_size, 8)
         x = x.transpose(1, 2)
-        norm = x.norm(p=2, dim=-1, keepdim=True)
+        norm = torch.linalg.norm(x, ord=2, dim=-1, keepdim=True)
         x = x.div(norm)
         input_vectors = x
         output, maskSample = self.bert(x)
@@ -175,7 +181,7 @@ class flow_I3D64f_bert2(nn.Module):
 
 # rgb_I3D64f_bert2S
 class rgb_I3D64f_bert2_FRMB(nn.Module):
-    def __init__(self, num_classes, length, num_channels):
+    def __init__(self, checkpoint, num_classes, length, num_channels):
         super(rgb_I3D64f_bert2_FRMB, self).__init__()
         self.hidden_size = 512
         self.n_layers = 1
@@ -184,7 +190,7 @@ class rgb_I3D64f_bert2_FRMB(nn.Module):
         self.length = length
         self.dp = nn.Dropout(p=0.8)
 
-        self.features = nn.Sequential(*list(_inception(num_classes, num_channels).children())[3:])
+        self.features = nn.Sequential(*list(_inception(checkpoint, num_classes, num_channels).children())[3:])
 
         for param in self.features.parameters():
             param.requires_grad = True
@@ -201,25 +207,27 @@ class rgb_I3D64f_bert2_FRMB(nn.Module):
         torch.nn.init.xavier_uniform_(self.fc_action.weight)
         self.fc_action.bias.data.zero_()
 
+    @autocast(enabled=False)
     def forward(self, x):
         x = self.features(x)
         x = self.avgpool(x)
         x = x.view(x.size(0), self.hidden_size, 8)
         x = x.transpose(1, 2)
-        norm = x.norm(p=2, dim=-1, keepdim=True)
+        norm = torch.linalg.norm(x, ord=2, dim=-1, keepdim=True)
         x = x.div(norm)
         input_vectors = x
-        output, maskSample = self.bert(x)
-        classificationOut = output[:, 0, :]
-        sequenceOut = output[:, 1:, :]
-        output = self.dp(classificationOut)
+        with autocast(enabled=False):
+            output, maskSample = self.bert(x)
+            classificationOut = output[:, 0, :]
+            sequenceOut = output[:, 1:, :]
+            output = self.dp(classificationOut)
         x = self.fc_action(output)
         return x, input_vectors, sequenceOut, maskSample
 
 
 # flow_I3D64f_bert2S
 class flow_I3D64f_bert2_FRMB(nn.Module):
-    def __init__(self, num_classes, length, num_channels):
+    def __init__(self, checkpoint, num_classes, length, num_channels):
         super(flow_I3D64f_bert2_FRMB, self).__init__()
         self.hidden_size = 512
         self.n_layers = 1
@@ -228,7 +236,7 @@ class flow_I3D64f_bert2_FRMB(nn.Module):
         self.length = length
         self.dp = nn.Dropout(p=0.8)
 
-        self.features = nn.Sequential(*list(_inception_flow(num_classes, num_channels).children())[3:])
+        self.features = nn.Sequential(*list(_inception_flow(checkpoint, num_classes, num_channels).children())[3:])
 
         for param in self.features.parameters():
             param.requires_grad = True
@@ -245,12 +253,13 @@ class flow_I3D64f_bert2_FRMB(nn.Module):
         torch.nn.init.xavier_uniform_(self.fc_action.weight)
         self.fc_action.bias.data.zero_()
 
+    @autocast(enabled=False)
     def forward(self, x):
         x = self.features(x)
         x = self.avgpool(x)
         x = x.view(x.size(0), self.hidden_size, 8)
         x = x.transpose(1, 2)
-        norm = x.norm(p=2, dim=-1, keepdim=True)
+        norm = torch.linalg.norm(x, ord=2, dim=-1, keepdim=True)
         x = x.div(norm)
         input_vectors = x
         output, maskSample = self.bert(x)
@@ -263,7 +272,7 @@ class flow_I3D64f_bert2_FRMB(nn.Module):
 
 # rgb_I3D64f_bert2B
 class rgb_I3D64f_bert2_FRAB(nn.Module):
-    def __init__(self, num_classes, length, num_channels):
+    def __init__(self, checkpoint, num_classes, length, num_channels):
         super(rgb_I3D64f_bert2_FRAB, self).__init__()
         self.hidden_size = 512
         self.n_layers = 1
@@ -272,7 +281,7 @@ class rgb_I3D64f_bert2_FRAB(nn.Module):
         self.length = length
         self.dp = nn.Dropout(p=0.8)
 
-        self.features = nn.Sequential(*list(_inception(num_classes, num_channels).children())[3:])
+        self.features = nn.Sequential(*list(_inception(checkpoint, num_classes, num_channels).children())[3:])
 
         for param in self.features.parameters():
             param.requires_grad = True
@@ -289,13 +298,14 @@ class rgb_I3D64f_bert2_FRAB(nn.Module):
         torch.nn.init.xavier_uniform_(self.fc_action.weight)
         self.fc_action.bias.data.zero_()
 
+    @autocast(enabled=False)
     def forward(self, x):
         x = self.features(x)
         x = self.mapper(x)
         x = self.avgpool(x)
         x = x.view(x.size(0), self.hidden_size, 8)
         x = x.transpose(1, 2)
-        norm = x.norm(p=2, dim=-1, keepdim=True)
+        norm = torch.linalg.norm(x, ord=2, dim=-1, keepdim=True)
         x = x.div(norm)
         input_vectors = x
         output, maskSample = self.bert(x)
@@ -308,7 +318,7 @@ class rgb_I3D64f_bert2_FRAB(nn.Module):
 
 # flow_I3D64f_bert2B
 class flow_I3D64f_bert2_FRAB(nn.Module):
-    def __init__(self, num_classes, length):
+    def __init__(self, checkpoint, num_classes, length):
         super(flow_I3D64f_bert2_FRAB, self).__init__()
         self.hidden_size = 512
         self.n_layers = 1
@@ -317,7 +327,7 @@ class flow_I3D64f_bert2_FRAB(nn.Module):
         self.length = length
         self.dp = nn.Dropout(p=0.8)
 
-        self.features = nn.Sequential(*list(_inception_flow(num_classes, 2).children())[3:])
+        self.features = nn.Sequential(*list(_inception_flow(checkpoint, num_classes, 2).children())[3:])
 
         for param in self.features.parameters():
             param.requires_grad = True
@@ -334,13 +344,14 @@ class flow_I3D64f_bert2_FRAB(nn.Module):
         torch.nn.init.xavier_uniform_(self.fc_action.weight)
         self.fc_action.bias.data.zero_()
 
+    @autocast(enabled=False)
     def forward(self, x):
         x = self.features(x)
         x = self.mapper(x)
         x = self.avgpool(x)
         x = x.view(x.size(0), self.hidden_size, 8)
         x = x.transpose(1, 2)
-        norm = x.norm(p=2, dim=-1, keepdim=True)
+        norm = torch.linalg.norm(x, ord=2, dim=-1, keepdim=True)
         x = x.div(norm)
         input_vectors = x
         output, maskSample = self.bert(x)
@@ -359,6 +370,7 @@ class MaxPool3dSamePadding(nn.MaxPool3d):
         else:
             return max(self.kernel_size[dim] - (s % self.stride[dim]), 0)
 
+    @autocast(enabled=False)
     def forward(self, x):
         # compute 'same' padding
         (batch, channel, t, h, w) = x.size()
@@ -427,6 +439,7 @@ class Unit3D(nn.Module):
         else:
             return max(self._kernel_shape[dim] - (s % self._stride[dim]), 0)
 
+    @autocast(enabled=False)
     def forward(self, x):
         # compute 'same' padding
         (batch, channel, t, h, w) = x.size()
@@ -481,6 +494,7 @@ class InceptionModule(nn.Module):
                           name=name + '/Branch_3/Conv3d_0b_1x1')
         self.name = name
 
+    @autocast(enabled=False)
     def forward(self, x):
         b0 = self.b0(x)
         b1 = self.b1b(self.b1a(x))
@@ -660,6 +674,7 @@ class InceptionI3d(nn.Module):
         for k in self.end_points.keys():
             self.add_module(k, self.end_points[k])
 
+    @autocast(enabled=False)
     def forward(self, x):
         for end_point in self.VALID_ENDPOINTS:
             if end_point in self.end_points:
@@ -678,9 +693,19 @@ class InceptionI3d(nn.Module):
         return self.avg_pool(x)
 
 
-def _inception(n_classes, n_channels):
-    return InceptionI3d(n_classes, in_channels=n_channels)
+def _inception(checkpoint, n_classes, n_channels):
+    model = InceptionI3d(400, in_channels=n_channels)
+    state_dict = torch.load(checkpoint)
+    conv1_weights = state_dict['Conv3d_1a_7x7.conv3d.weight']
+    state_dict['Conv3d_1a_7x7.conv3d.weight'] = conv1_weights.mean(dim=1, keepdim=True)
+    model.load_state_dict(state_dict)
+    model.replace_logits(n_classes)
+    return model
 
 
-def _inception_flow(n_classes, n_channels):
-    return InceptionI3d(n_classes, in_channels=n_channels)
+def _inception_flow(checkpoint, n_classes, n_channels):
+    model = InceptionI3d(400, in_channels=n_channels)
+    state_dict = torch.load(checkpoint)
+    model.load_state_dict(state_dict)
+    model.replace_logits(n_classes)
+    return model

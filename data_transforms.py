@@ -44,7 +44,7 @@ class DataAugmentations:
 
         return img.astype(np.float32)
 
-    def transform_size(self, img, fps):
+    def transform_size(self, img, fps, hr):
         time_start = time.time()
         if self.transforms.grayscale:
             img = self.t_grayscale_mean(img)
@@ -52,15 +52,19 @@ class DataAugmentations:
             time_gf = time.time()
             time_gf_diff = time_gf - time_start
             print("Image size after grayscale: {}, Time to process: {}".format(img.shape, time_gf_diff))
-        if self.transforms.rescale_fps or self.transforms.resize_frames:
-            # Some files had only this attribute instead of data.CineRate
-            # so this was used instead, in theory they should be the same.
-            original_fps = fps
-            if self.transforms.rescale_fps and not self.transforms.target_fps == original_fps:
-                new_length = int(img.shape[0] * (self.transforms.target_fps/original_fps))
+        if self.transforms.rescale_fps or self.transforms.resize_frames or self.transforms.rescale_fphb:
+            assert not (self.transforms.rescale_fps and self.transforms.rescale_fphb)
+
+            # Rescale length by either fps or fphb
+            if self.transforms.rescale_fps and not self.transforms.target_fps == fps:
+                new_length = int(img.shape[0] * (self.transforms.target_fps/fps))
+            elif self.transforms.rescale_fphb:
+                curr_fphb = self.calc_fphb(hr, fps)
+                new_length = int(img.shape[0]*(self.transforms.target_fphb/curr_fphb))
             else:
                 new_length = img.shape[0]
 
+            # Rescale size
             if self.transforms.resize_frames and not (img.shape[1] == self.transforms.target_height and
                                                       img.shape[2] == self.transforms.target_width):
                 new_height = self.transforms.target_height
@@ -68,7 +72,9 @@ class DataAugmentations:
             else:
                 new_height = img.shape[1]
                 new_width = img.shape[2]
+
             img = self.t_resize(img, new_length, new_height, new_width)
+
         if self.debug:
             time_rescale = time.time()
             time_fps_diff = time_rescale - time_gf
@@ -122,19 +128,10 @@ class DataAugmentations:
         return resize(img, (target_length, target_height, target_width), mode='constant', cval=0, preserve_range=True,
                       anti_aliasing=False).astype(np.uint8)
 
-    def calc_fph(self, hr, fps):
+    def calc_fphb(self, hr, fps):
         hbs = hr/60
-        fph = int(fps / hbs)
-        return fph
-
-    def t_resize_hb(self, img, hr, fps, target_length, target_height, target_width):
-        img_len = len(img)
-        fph = self.calc_fph(img_len, hr, fps)
-        diff = img_len - fph
-        rndm = randint(0, diff+1)
-        hb = img[rndm: fph + rndm]
-        return resize(hb, (target_length, target_height, target_width), mode='constant', cval=0, preserve_range=True,
-                      anti_aliasing=False).astype(np.uint8)
+        fphb = int(fps / hbs)
+        return fphb
 
     def t_pad_size(self, img):
         # Pad edges of frames
@@ -165,7 +162,7 @@ class DataAugmentations:
             crop_sequence[2] = (int(img.shape[2] / 20), int(img.shape[2] / 20))
         if self.transforms.crop_length and img.shape[0] > self.transforms.target_length:
             diff = img.shape[0] - self.transforms.target_length
-            rand = randint(0, diff + 1)
+            rand = randint(0, diff)
             crop_sequence[0] = (rand, diff - rand)
         return crop(img, crop_width=tuple(crop_sequence)).astype(np.uint8)
 

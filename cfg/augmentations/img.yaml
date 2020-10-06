@@ -7,9 +7,9 @@ train:
   speckle_var: 0.005
   salt_and_pepper: True
   salt_and_pepper_amount: 0.01 
-  translate_v: False
+  translate_v: True
   translate_v_std_dev_pxl: 3
-  translate_h: False
+  translate_h: True
   translate_h_std_dev_pxl: 3
   rotate: True
   rotate_std_dev_degrees: 10

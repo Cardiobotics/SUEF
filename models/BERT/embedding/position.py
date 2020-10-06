@@ -1,5 +1,6 @@
 import torch.nn as nn
 import torch
+from torch.cuda.amp import autocast
 import math
 
 
@@ -26,6 +27,7 @@ class PositionalEmbedding(nn.Module):
         pe = pe.unsqueeze(0)
         self.register_buffer('pe', pe)
 
+    @autocast(enabled=False)
     def forward(self, x):
         return self.pe[:, :x.size(1)]
 
@@ -43,6 +45,7 @@ class LearnedPositionalEmbedding2(nn.Module):
         self.pe=nn.Parameter(pe)
         torch.nn.init.normal_(self.pe,std=0.02)
 
+    @autocast(enabled=False)
     def forward(self, x):
         return self.pe[:, :x.size(1)]
     
@@ -58,6 +61,7 @@ class LearnedPositionalEmbedding(nn.Module):
         self.pe=nn.Parameter(pe)
         torch.nn.init.normal_(self.pe,std = d_model ** -0.5)
 
+    @autocast(enabled=False)
     def forward(self, x):
         return self.pe[:, :x.size(1)]
     
@@ -75,6 +79,7 @@ class LearnedPositionalEmbedding3(nn.Module):
         self.pe=nn.Parameter(pe)
         torch.nn.init.normal_(self.pe, std = d_model ** -0.5)
 
+    @autocast(enabled=False)
     def forward(self, x):
         return self.a_2 * self.pe[:, :x.size(1)] + self.b_2 
     

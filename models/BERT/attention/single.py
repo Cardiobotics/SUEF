@@ -1,7 +1,7 @@
 import torch.nn as nn
 import torch.nn.functional as F
 import torch
-
+from torch.cuda.amp import autocast
 import math
 
 
@@ -10,6 +10,7 @@ class Attention(nn.Module):
     Compute 'Scaled Dot Product Attention
     """
 
+    @autocast(enabled=False)
     def forward(self, query, key, value, mask=None, dropout=None):
         scores = torch.matmul(query, key.transpose(-2, -1)) \
                  / math.sqrt(query.size(-1))
@@ -31,6 +32,7 @@ class Attention2(nn.Module):
     Compute 'Scaled Dot Product Attention
     """
 
+    @autocast(enabled=False)
     def forward(self, value, p_attn, dropout=None):
 
         if dropout is not None:

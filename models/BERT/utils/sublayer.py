@@ -1,5 +1,6 @@
 import torch.nn as nn
 from .layer_norm import LayerNorm
+from torch.cuda.amp import autocast
 
 
 class SublayerConnection(nn.Module):
@@ -13,6 +14,7 @@ class SublayerConnection(nn.Module):
         self.norm = LayerNorm(size)
         self.dropout = nn.Dropout(dropout)
 
+    @autocast(enabled=False)
     def forward(self, x, sublayer):
         "Apply residual connection to any sublayer with the same size."
         return x + self.dropout(sublayer(self.norm(x)))
@@ -29,6 +31,7 @@ class SublayerConnection2(nn.Module):
         self.norm = LayerNorm(size)
         self.dropout = nn.Dropout(dropout)
 
+    @autocast(enabled=False)
     def forward(self, x, y, mask, sublayer):
         "Apply residual connection to any sublayer with the same size."
         temp_X, temp_Y = sublayer(self.norm(x), self.norm(y), mask)

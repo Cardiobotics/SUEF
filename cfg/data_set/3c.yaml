@@ -3,9 +3,3 @@
 name: 3-Chamber
 label: 3c
 view_label: 2
-
-data_folder: ${data.base_data_folder}/${data.type}/${data.view_label}
-
-train_targets: ${data.base_target_folder}/train_targets_${data.type}_${data.view_label}.csv
-val_targets: ${data.base_target_folder}/val_targets_${data.type}_${data.view_label}.csv
-test_targets: ${data.base_target_folder}/test_targets_${data.type}_${data.view_label}.csv

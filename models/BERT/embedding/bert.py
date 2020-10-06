@@ -1,4 +1,5 @@
 import torch.nn as nn
+from torch.cuda.amp import autocast
 from .token import TokenEmbedding
 from .position import PositionalEmbedding, LearnedPositionalEmbedding2, LearnedPositionalEmbedding, LearnedPositionalEmbedding3
 from .segment import SegmentEmbedding
@@ -21,6 +22,7 @@ class BERTEmbedding(nn.Module):
         self.position = PositionalEmbedding(d_model=input_dim,max_len=max_len, freq=64)
         self.dropout = nn.Dropout(p=dropout)
 
+    @autocast(enabled=False)
     def forward(self, sequence):
         x = self.position(sequence)+sequence
         return self.dropout(x)
@@ -42,6 +44,7 @@ class BERTEmbedding3(nn.Module):
         self.learnedPosition = LearnedPositionalEmbedding(d_model=input_dim,max_len=max_len)
         self.dropout = nn.Dropout(p=dropout)
 
+    @autocast(enabled=False)
     def forward(self, sequence):
         x = self.learnedPosition(sequence)+sequence
         return self.dropout(x)
@@ -63,6 +66,7 @@ class BERTEmbedding2(nn.Module):
         self.learnedPosition = LearnedPositionalEmbedding2(d_model=input_dim,max_len=max_len)
         self.dropout = nn.Dropout(p=dropout)
 
+    @autocast(enabled=False)
     def forward(self, sequence):
         x = self.learnedPosition(sequence)+sequence
         return self.dropout(x)
@@ -85,6 +89,7 @@ class BERTEmbedding4(nn.Module):
         self.learnedPosition = LearnedPositionalEmbedding3(d_model=input_dim,max_len=max_len)
         self.dropout = nn.Dropout(p=dropout)
 
+    @autocast(enabled=False)
     def forward(self, sequence):
         x = self.learnedPosition(sequence)+sequence
         return self.dropout(x)
