@@ -3,3 +3,4 @@
 name: 3-Chamber
 label: 3c
 view_label: 2
+allowed_views: [2]

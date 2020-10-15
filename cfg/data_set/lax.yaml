@@ -3,3 +3,4 @@
 name: Lax
 label: lax
 view_label: 12
+allowed_views: [12]

@@ -1,6 +1,6 @@
 # @package augmentations
 
-train:
+train_a:
   gaussian_noise: False
   gn_var: 0.01
   speckle: False
@@ -14,7 +14,7 @@ train:
   rotate: False
   rotate_std_dev_degrees: 10
 
-eval:
+eval_a:
   gaussian_noise: False
   gn_var: 0.01
   speckle: False

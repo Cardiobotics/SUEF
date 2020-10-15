@@ -1,6 +1,7 @@
 # @package model
 
 pre_trained_checkpoint: /home/ola/Projects/SUEF/pretrained_models/i3d_bert_rgb_imagenet.pth
+best_model: /home/ola/Projects/SUEF/saved_models/i3d_bert_img_2-Chamber_exp_SUEF-107.pth
 
 n_input_channels: 1
 pre_n_input_channels: 3

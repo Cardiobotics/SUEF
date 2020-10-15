@@ -3,3 +3,4 @@
 name: Sax
 label: sax
 view_label: 20
+allowed_views: [20]

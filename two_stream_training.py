@@ -103,7 +103,7 @@ def train_and_validate(img_model, flow_model, train_data_loader, val_data_loader
         # Training
         img_model.train()
         flow_model.train()
-        for j, (img_inputs_t, flow_inputs_t, targets_t) in enumerate(train_data_loader):
+        for j, (img_inputs_t, flow_inputs_t, targets_t, index, uid) in enumerate(train_data_loader):
             # Update timer for data retrieval
             data_time_t.update(time.time() - end_time_t)
 

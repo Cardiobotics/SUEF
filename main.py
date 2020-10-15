@@ -40,44 +40,56 @@ def main(cfg: DictConfig) -> None:
             model.load_state_dict(state_dict)
             model.replace_logits(cfg.model.n_classes)
     elif cfg.model.name == 'i3d_bert':
-        if cfg.data.type == 'img':
-            model = i3d_bert.rgb_I3D64f_bert2_FRMB(cfg.model.pre_trained_checkpoint, cfg.model.n_classes, cfg.model.length, cfg.model.n_input_channels)
-        if cfg.data.type == 'flow':
-            model = i3d_bert.flow_I3D64f_bert2_FRMB(cfg.model.pre_trained_checkpoint, cfg.model.n_classes, cfg.model.length)
+        if cfg.training.continue_training:
+            if cfg.data.type == 'img':
+                model = i3d_bert.rgb_I3D64f_bert2_FRMB('', cfg.model.length, cfg.model.n_classes,  cfg.model.n_input_channels, cfg.model.pre_n_classes, cfg.model.pre_n_input_channels)
+            if cfg.data.type == 'flow':
+                model = i3d_bert.flow_I3D64f_bert2_FRMB('', cfg.model.length, cfg.model.n_classes,  cfg.model.n_input_channels, cfg.model.pre_n_classes, cfg.model.pre_n_input_channels)
+            state_dict = torch.load(cfg.model.best_model)['model']
+            model.load_state_dict(state_dict)
+        else:
+            if cfg.data.type == 'img':
+                model = i3d_bert.rgb_I3D64f_bert2_FRMB(cfg.model.pre_trained_checkpoint, cfg.model.length, cfg.model.n_classes,  cfg.model.n_input_channels, cfg.model.pre_n_classes, cfg.model.pre_n_input_channels)
+            if cfg.data.type == 'flow':
+                model = i3d_bert.flow_I3D64f_bert2_FRMB(cfg.model.pre_trained_checkpoint, cfg.model.length, cfg.model.n_classes,  cfg.model.n_input_channels, cfg.model.pre_n_classes, cfg.model.pre_n_input_channels)
+
+    train_data_loader, val_data_loader = create_data_loaders(cfg)
 
     experiment = None
     if cfg.logging.logging_enabled:
         neptune.init(cfg.logging.project_name)
         experiment_params = {**dict(cfg.data_loader), **dict(cfg.transforms), **dict(cfg.augmentations),
                              **dict(cfg.performance), **dict(cfg.training), **dict(cfg.optimizer), **dict(cfg.model),
-                             'data_stream': cfg.data.type, 'view': cfg.data.name}
+                             **dict(cfg.evaluation), 'data_stream': cfg.data.type, 'view': cfg.data.name,
+                             'train_dataset_size': len(train_data_loader.dataset),
+                             'val_dataset_size': len(val_data_loader.dataset)}
         experiment = neptune.create_experiment(name=cfg.logging.experiment_name, params=experiment_params)
 
-    train_data_loader, train_sampler, val_data_loader = create_data_loaders(cfg)
+    train_and_validate(model, train_data_loader, val_data_loader, cfg, experiment=experiment)
 
-    train_and_validate(model, train_data_loader, train_sampler, val_data_loader, cfg, experiment=experiment)
+
 
 
 def create_data_loaders(cfg):
     # Create DataLoaders for training and validation
-    train_d_set = NPYDataset(cfg.data, cfg.transforms, cfg.augmentations.train, cfg.data.train_targets)
+    train_d_set = NPYDataset(cfg.data, cfg.transforms.train_t, cfg.augmentations.train_a, cfg.data.train_targets)
     train_d_size = len(train_d_set)
     print("Training dataset size: {}".format(train_d_size))
     if cfg.data_loader.weighted_sampler:
         weights = [1.0] * train_d_size
-        sampler = WeightedRandomSampler(weights=weights, num_samples=train_d_size, replacement=False)
+        sampler = WeightedRandomSampler(weights=weights, num_samples=train_d_size, replacement=True)
     else:
         sampler = RandomSampler(train_d_set)
-    train_data_loader = DataLoader(train_d_set, batch_size=cfg.data_loader.batch_size,
+    train_data_loader = DataLoader(train_d_set, batch_size=cfg.data_loader.batch_size_train,
                                    num_workers=cfg.data_loader.n_workers, drop_last=cfg.data_loader.drop_last,
                                    sampler=sampler)
 
-    val_d_set = NPYDataset(cfg.data, cfg.transforms, cfg.augmentations.eval, cfg.data.val_targets)
+    val_d_set = NPYDataset(cfg.data, cfg.transforms.eval_t, cfg.augmentations.eval_a, cfg.data.val_targets)
     print("Validation dataset size: {}".format(len(val_d_set)))
-    val_data_loader = DataLoader(val_d_set, batch_size=cfg.data_loader.batch_size,
+    val_data_loader = DataLoader(val_d_set, batch_size=cfg.data_loader.batch_size_eval,
                                  num_workers=cfg.data_loader.n_workers, drop_last=cfg.data_loader.drop_last)
 
-    return train_data_loader, sampler, val_data_loader
+    return train_data_loader, val_data_loader
 
 
 if __name__ == "__main__":

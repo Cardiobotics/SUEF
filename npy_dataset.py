@@ -24,9 +24,9 @@ class NPYDataset(torch.utils.data.Dataset):
         return len(self.targets)
 
     def __getitem__(self, index):
-        img, target = self.data_list[index]
+        img, target, uid = self.data_list[index]
         img = self.data_aug.transform_values(img)
-        return img.transpose(3, 0, 1, 2), np.expand_dims(target, axis=0).astype(np.float32), index
+        return img.transpose(3, 0, 1, 2), np.expand_dims(target, axis=0).astype(np.float32), index, uid
 
     def load_data_into_mem(self):
         nprocs = mp.cpu_count()
@@ -54,6 +54,6 @@ class NPYDataset(torch.utils.data.Dataset):
                 raise ValueError("Target is None")
             if img is None:
                 raise ValueError("Img is None")
-            return img, target
+            return img, target, uid
         except Exception as e:
             print("Failed to get item for File: {} with exception: {}".format(file, e))

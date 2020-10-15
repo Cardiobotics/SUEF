@@ -130,7 +130,7 @@ class DataAugmentations:
 
     def calc_fphb(self, hr, fps):
         hbs = hr/60
-        fphb = int(fps / hbs)
+        fphb = fps / hbs
         return fphb
 
     def t_pad_size(self, img):

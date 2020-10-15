@@ -8,11 +8,12 @@ from torch.cuda.amp import autocast
 import os
 import neptune
 import numpy as np
+import pandas as pd
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
 
-def train_and_validate(model, train_data_loader, train_sampler,  val_data_loader, cfg, experiment=None):
+def train_and_validate(model, train_data_loader, val_data_loader, cfg, experiment=None):
 
     # Set visible devices
     parallel_model = cfg.performance.parallel_mode
@@ -52,10 +53,10 @@ def train_and_validate(model, train_data_loader, train_sampler,  val_data_loader
     print('Model memory size: {}'.format(mem))
 
     # Initialize scheduler
-    use_scheduler = cfg.training.use_scheduler
+    use_scheduler = cfg.optimizer.use_scheduler
     if use_scheduler:
-        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=cfg.training.sched_step_size,
-                                                    gamma=cfg.training.sched_gamma)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=cfg.optimizer.s_patience,
+                                                               factor=cfg.optimizer.s_factor, threshold=1)
 
     # Maximum value used for gradient clipping = max fp16/2
     gradient_clipping = cfg.performance.gradient_clipping
@@ -83,7 +84,7 @@ def train_and_validate(model, train_data_loader, train_sampler,  val_data_loader
         end_time_t = time.time()
         # Training
         model.train()
-        for j, (inputs_t, targets_t, indexes_t) in enumerate(train_data_loader):
+        for j, (inputs_t, targets_t, indexes_t, _) in enumerate(train_data_loader):
             # Update timer for data retrieval
             data_time_t.update(time.time() - end_time_t)
             
@@ -96,19 +97,19 @@ def train_and_validate(model, train_data_loader, train_sampler,  val_data_loader
 
             # Get model train output and train loss
             with autocast(enabled=use_half_prec):
-                outputs_t, input_vectors, sequenceOut, maskSample = model(inputs_t)
+                outputs_t = model(inputs_t)
                 loss_t = criterion(outputs_t, targets_t)
                 loss_mean_t = loss_t.mean()
             if cfg.data_loader.weighted_sampler:
                 for index, loss in zip(indexes_t, loss_t.cpu().detach()):
                     loss_ratio = loss/loss_mean_t.cpu().detach()
-                    train_sampler.weights[index] = loss_ratio
+                    loss_ratio = torch.clamp(loss_ratio, min=0.1, max=3)
+                    train_data_loader.sampler.weights[index] = loss_ratio
             # Backwards pass and step
             optimizer.zero_grad()
 
             # Backwards pass
             scaler.scale(loss_mean_t).backward()
-            #loss_mean_t.backward()
 
             # Gradient Clipping
             if gradient_clipping:
@@ -116,7 +117,6 @@ def train_and_validate(model, train_data_loader, train_sampler,  val_data_loader
                 torch.nn.utils.clip_grad_value_(model.parameters(), max_norm)
 
             scaler.step(optimizer)
-            #optimizer.step()
             scaler.update()
 
             # Update metrics
@@ -129,7 +129,7 @@ def train_and_validate(model, train_data_loader, train_sampler,  val_data_loader
             # Update timer for batch
             batch_time_t.update(time.time() - end_time_t)
 
-            if j % 10 == 0:
+            if j % 100 == 0:
                 print('Training Batch: [{}/{}] in epoch: {} \t '
                       'Training Time: {batch_time.val:.3f} ({batch_time.avg:.3f}) \t '
                       'Training Data Time: {data_time.val:.3f} ({data_time.avg:.3f}) \t '
@@ -150,12 +150,15 @@ def train_and_validate(model, train_data_loader, train_sampler,  val_data_loader
               .format(i+1, batch_time=batch_time_t, data_time=data_time_t, loss=losses_t, r2=r2_values_t))
         end_time_v = time.time()
         if use_scheduler:
-            scheduler.step()
-
+            scheduler.step(losses_t.avg)
 
         # Validation
         model.eval()
-        for k, (inputs_v, targets_v, _) in enumerate(val_data_loader):
+        all_out_v = np.zeros((0))
+        all_target_v = np.zeros((0))
+        all_uids_v = np.zeros((0))
+        all_loss_v = np.zeros((0))
+        for k, (inputs_v, targets_v, _, uids_v) in enumerate(val_data_loader):
             # Update timer for data retrieval
             data_time_v.update(time.time() - end_time_v)
 
@@ -164,61 +167,77 @@ def train_and_validate(model, train_data_loader, train_sampler,  val_data_loader
                 targets_v = targets_v.to(device, non_blocking=True)
                 inputs_v = inputs_v.to(device, non_blocking=True)
             with torch.no_grad():
-            # Get model validation output and validation loss
+                # Get model validation output and validation loss
                 with autocast(enabled=use_half_prec):
-                    outputs_v, _, _, _ = model(inputs_v)
+                    outputs_v = model(inputs_v)
                     loss_v = criterion(outputs_v, targets_v)
                     loss_mean_v = loss_v.mean()
 
             # Update metrics
-            r2_targets_v = targets_v.cpu().detach()
-            r2_outputs_v = outputs_v.cpu().detach()
-            r2_v = r2_score(r2_targets_v, r2_outputs_v)
-            r2_values_v.update(r2_v)
-            losses_v.update(loss_mean_v)
+            if cfg.evaluation.use_best_sample:
+                all_out_v = np.concatenate((all_out_v, outputs_v.squeeze(axis=1).cpu().detach().numpy()))
+                all_target_v = np.concatenate((all_target_v, targets_v.squeeze(axis=1).cpu().detach().numpy()))
+                all_uids_v = np.concatenate((all_uids_v, uids_v))
+                all_loss_v = np.concatenate((all_loss_v, loss_v.cpu().squeeze(axis=1).detach().numpy()))
+            else:
+                r2_targets_v = targets_v.cpu().detach().numpy()
+                r2_outputs_v = outputs_v.cpu().detach()
+                r2_v = r2_score(r2_targets_v, r2_outputs_v)
+                r2_values_v.update(r2_v)
+                losses_v.update(loss_mean_v)
 
             # Update timer for batch
             batch_time_v.update(time.time() - end_time_v)
             end_time_v = time.time()
 
-            if k % 10 == 0:
-                print('Validation Batch: [{}/{}] in epoch: {} \t '
-                      'Validation Time: {batch_time.val:.3f} ({batch_time.avg:.3f}) \t '
-                      'Validation Data Time: {data_time.val:.3f} ({data_time.avg:.3f}) \t '
-                      'Validation Loss: {loss.val:.4f} ({loss.avg:.4f}) \t '
-                      'Validation R2 Score: {r2.val:.3f} ({r2.avg:.3f}) \t'
-                      .format(k + 1, len(val_data_loader), i + 1, batch_time=batch_time_v, data_time=data_time_v,
-                              loss=losses_v, r2=r2_values_v))
+        if cfg.evaluation.use_best_sample:
+            # Only use validation results from examination with the lowest loss
+            val_data = np.array((all_uids_v, all_out_v, all_target_v, all_loss_v))
+            val_data = val_data.transpose(1, 0)
+            pd_val_data = pd.DataFrame(val_data, columns=['us_id', 'output', 'target', 'loss'])
+            pd_val_data[['output', 'target', 'loss']] = pd_val_data[['output', 'target', 'loss']].astype(np.float32)
+            pd_val_data.sort_values('loss', ascending=True, inplace=True)
+            pd_val_data.drop_duplicates(subset='us_id', inplace=True)
+            v_loss_mean = pd_val_data['loss'].mean()
+            outputs = pd_val_data['output'].to_numpy(dtype=np.float32)
+            targets = pd_val_data['target'].to_numpy(dtype=np.float32)
+            v_r2 = r2_score(targets, outputs)
+        else:
+            v_loss_mean = losses_v.avg
+            v_r2 = r2_values_v.avg
 
         # End of validation epoch prints and updates
         print('Finished Validation Epoch: {} \t '
               'Validation Time: {batch_time.avg:.3f} \t '
               'Validation Data Time: {data_time.avg:.3f} \t '
-              'Validation Loss: {loss.avg:.4f} \t '
-              'Validation R2 score: {r2.avg:.3f} \t'
-              .format(i+1, batch_time=batch_time_v, data_time=data_time_v, loss=losses_v, r2=r2_values_v))
+              'Validation Loss: {loss:.4f} \t '
+              'Validation R2 score: {r2:.3f} \t'
+              .format(i+1, batch_time=batch_time_v, data_time=data_time_v, loss=v_loss_mean, r2=v_r2))
         print('Example targets: {} \n Example outputs: {}'.format(torch.squeeze(targets_v), torch.squeeze(outputs_v)))
 
-        if cfg.logging.logging_enabled:
-            log_metrics(experiment, losses_v.avg, r2_values_v.avg)
-
         if cfg.training.checkpointing_enabled and cfg.logging.logging_enabled:
-            if r2_values_v.avg > max_val_r2:
+            if v_r2 > max_val_r2:
                 checkpoint_name = cfg.training.checkpoint_save_path + cfg.model.name + '_' + cfg.data.type + '_'\
                                   + cfg.data.name + '_exp_' + experiment.id + '.pth'
                 save_checkpoint(checkpoint_name, model, optimizer)
-                max_val_r2 = r2_values_v.avg
+                max_val_r2 = v_r2
         elif cfg.training.checkpointing_enabled:
-            if r2_values_v.avg > max_val_r2:
+            if v_r2 > max_val_r2:
                 checkpoint_name = cfg.training.checkpoint_save_path + cfg.model.name + '_' + cfg.data.type + '_'\
                                   + cfg.data.name + '_test' + '.pth'
                 save_checkpoint(checkpoint_name, model, optimizer)
-                max_val_r2 = r2_values_v.avg
+                max_val_r2 = v_r2
+
+        if cfg.logging.logging_enabled:
+            log_metrics(experiment, losses_t.avg, r2_values_t.avg, v_loss_mean, v_r2, max_val_r2)
 
 
-def log_metrics(experiment, loss, r2):
-    experiment.log_metric('loss', loss)
-    experiment.log_metric('r2', r2)
+def log_metrics(experiment, t_loss, t_r2, v_loss, v_r2, best_v_r2):
+    experiment.log_metric('training_loss', t_loss)
+    experiment.log_metric('training_r2', t_r2)
+    experiment.log_metric('validation_loss', v_loss)
+    experiment.log_metric('validation_r2', v_r2)
+    experiment.log_metric('best_val_r2', best_v_r2)
 
 
 def save_checkpoint(save_file_path, model, optimizer):
@@ -231,13 +250,3 @@ def save_checkpoint(save_file_path, model, optimizer):
         'optimizer': optimizer.state_dict(),
     }
     torch.save(save_states, save_file_path)
-
-
-def restore_checkpoint(args, model, optimizer, scheduler, checkpoint_path):
-    # Restore
-    checkpoint = torch.load(checkpoint_path)
-
-    model.load_state_dict(checkpoint['model'])
-    optimizer.load_state_dict(checkpoint['optimizer'])
-
-    return model, optimizer, scheduler

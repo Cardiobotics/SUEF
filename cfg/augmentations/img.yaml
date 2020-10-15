@@ -1,20 +1,20 @@
 # @package augmentations
 
-train:
+train_a:
   gaussian_noise: True
-  gn_var: 0.005
+  gn_var: 0.002
   speckle: True
-  speckle_var: 0.005
+  speckle_var: 0.002
   salt_and_pepper: True
-  salt_and_pepper_amount: 0.01 
+  salt_and_pepper_amount: 0.005
   translate_v: True
-  translate_v_std_dev_pxl: 3
+  translate_v_std_dev_pxl: 2
   translate_h: True
-  translate_h_std_dev_pxl: 3
+  translate_h_std_dev_pxl: 2
   rotate: True
   rotate_std_dev_degrees: 10
 
-eval:
+eval_a:
   gaussian_noise: False
   gn_var: 0.01
   speckle: False

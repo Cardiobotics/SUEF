@@ -1,14 +1,13 @@
 defaults:
-  - data_type: img
-  - model: i3d_bert
+  - data_type: flow
+  - model: i3d
   - model_type: ${defaults.1.model}_${defaults.0.data_type}
   - transforms: ${defaults.0.data_type}
   - augmentations: ${defaults.0.data_type}
-  - data_set: 2c
+  - data_set: 3c
 
 data:
   file_sep: ;
-  allowed_views: [2]
   base_target_folder: /home/ola/Projects/SUEF/data
   data_folder: ${data.base_data_folder}/${data.type}/
   train_targets: ${data.base_target_folder}/train_data.csv
@@ -29,21 +28,26 @@ performance:
   gradient_clipping_max_norm: 32752
 
 data_loader:
-  batch_size: 16
+  batch_size_train: 16
+  batch_size_eval: 16
   n_workers: 10
   custom_collate: False
   drop_last: True
   weighted_sampler: True
 
 optimizer:
-  learning_rate: 0.0001
-  weight_decay: 0.00001
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  use_scheduler: False
+  s_patience: 5
+  s_factor: 0.1
 
 training:
   epochs: 30
-  use_scheduler: False
-  sched_step_size: 10
-  sched_gamma: 0.1
   checkpointing_enabled: True
+  continue_training: False
   checkpoint_save_path: /home/ola/Projects/SUEF/saved_models/
   freeze_lower: False
+
+evaluation:
+  use_best_sample: True
