@@ -20,6 +20,13 @@ class DataAugmentations:
         self.augmentations = augmentations
         self.debug = False
 
+        if self.transforms.normalize_input:
+            self.black_val = -1.0
+            self.white_val = 1.0
+        else:
+            self.black_val = 0.0
+            self.white_val = 255.0
+
     def transform_values(self, img):
 
         # Pixel values expected to be in range 0-255
@@ -41,6 +48,12 @@ class DataAugmentations:
             img = self.t_translate_v(img)
         if self.augmentations.rotate:
             img = self.t_rotate(img)
+
+        # Local changes
+        if self.augmentations.local_blackout:
+            img = self.t_local_blackout(img)
+        if self.augmentations.local_intensity:
+            img = self.t_local_intensity(img)
 
         return img.astype(np.float32)
 
@@ -125,8 +138,8 @@ class DataAugmentations:
         return random_noise(img, mode='speckle', var=self.augmentations.speckle_var)
 
     def t_resize(self, img, target_length, target_height, target_width):
-        return resize(img, (target_length, target_height, target_width), mode='constant', cval=0, preserve_range=True,
-                      anti_aliasing=False).astype(np.uint8)
+        return resize(img, (target_length, target_height, target_width), mode='constant', cval=self.black_val,
+                      preserve_range=True, anti_aliasing=False).astype(np.uint8)
 
     def calc_fphb(self, hr, fps):
         hbs = hr/60
@@ -142,7 +155,7 @@ class DataAugmentations:
                             (int((self.transforms.target_width - img.shape[2])/2),
                              int((self.transforms.target_width - img.shape[2])/2)),
                             (0, 0))
-            img = np.pad(img, pad_width=pad_sequence)
+            img = np.pad(img, pad_width=pad_sequence, constant_values=self.black_val)
         return img
 
     def t_loop_length(self, img):
@@ -171,11 +184,11 @@ class DataAugmentations:
 
         video = video.transpose(3, 0, 1, 2)
 
-        final_video = np.zeros(video.shape)
+        final_video = np.full_like(video, self.black_val)
         for i, channel in enumerate(video):
-            new_img = np.zeros(channel.shape)
+            new_img = np.full_like(channel, self.black_val)
             for j, frame in enumerate(channel):
-                translated_frame = np.zeros(frame.shape)
+                translated_frame = np.full_like(frame, self.black_val)
                 if t_len < 0:
                     translated_frame[0:t_len, :] = frame[-t_len:, :]
                 elif t_len > 0:
@@ -192,11 +205,11 @@ class DataAugmentations:
 
         video = video.transpose(3, 0, 1, 2)
 
-        final_video = np.zeros(video.shape)
+        final_video = np.full_like(video, self.black_val)
         for i, channel in enumerate(video):
-            new_img = np.zeros(channel.shape)
+            new_img = np.full_like(channel, self.black_val)
             for j, frame in enumerate(channel):
-                translated_frame = np.zeros(frame.shape)
+                translated_frame = np.full_like(frame, self.black_val)
                 if t_len < 0:
                     translated_frame[:, 0:t_len] = frame[:, -t_len:]
                 elif t_len > 0:
@@ -212,12 +225,46 @@ class DataAugmentations:
 
         video = video.transpose(3, 0, 1, 2)
 
-        final_video = np.zeros(video.shape)
+        final_video = np.full_like(video, self.black_val)
         for i, channel in enumerate(video):
-            new_img = np.zeros(channel.shape)
+            new_img = np.full_like(channel, self.black_val)
             for j, frame in enumerate(channel):
-                rotated_frame = rotate(frame, t_rotation, resize=False, mode='constant', cval=0, preserve_range=True)
+                rotated_frame = rotate(frame, t_rotation, resize=False, mode='constant', cval=self.black_val, preserve_range=True)
                 new_img[j] = rotated_frame
             final_video[i] = new_img
         return final_video.transpose(1, 2, 3, 0)
 
+    def t_local_blackout(self, video):
+
+        bo_size_h = abs(np.random.normal(0, self.augmentations.blackout_h_std_dev))
+        bo_size_w = abs(np.random.normal(0, self.augmentations.blackout_w_std_dev))
+
+        bo_pos_h = np.random.randint(0, video.shape[1] - bo_size_h)
+        bo_pos_w = np.random.randint(0, video.shape[2] - bo_size_w)
+
+        video = video.transpose(3, 0, 1, 2)
+
+        for i, channel in enumerate(video):
+            for j, frame in enumerate(channel):
+                frame[bo_pos_h:bo_pos_h+bo_size_h, bo_pos_w:bo_pos_w+bo_size_w] = self.black_val
+
+        return video.transpose(1, 2, 3, 0)
+
+    def t_local_intensity(self, video):
+
+        ints_size_h = abs(np.random.normal(0, self.augmentations.intensity_h_std_dev))
+        ints_size_w = abs(np.random.normal(0, self.augmentations.intensity_w_std_dev))
+
+        ints_pos_h = np.random.randint(0, video.shape[1] - ints_size_h)
+        ints_pos_w = np.random.randint(0, video.shape[2] - ints_size_w)
+
+        ints_val = np.random.normal(0, self.augmentations.intensity_var)
+
+        video = video.transpose(3, 0, 1, 2)
+
+        for i, channel in enumerate(video):
+            for j, frame in enumerate(channel):
+                frame[ints_pos_h:ints_pos_h+ints_size_h, ints_pos_w:ints_pos_w+ints_size_w] = \
+                    frame[ints_pos_h:ints_pos_h+ints_size_h, ints_pos_w:ints_pos_w+ints_size_w] + ints_val
+        video = np.clip(video, self.black_val, self.white_val)
+        return video.transpose(1, 2, 3, 0)

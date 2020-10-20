@@ -1,10 +1,10 @@
 defaults:
   - data_type: flow
-  - model: i3d
+  - model: i3d_bert
   - model_type: ${defaults.1.model}_${defaults.0.data_type}
   - transforms: ${defaults.0.data_type}
   - augmentations: ${defaults.0.data_type}
-  - data_set: 3c
+  - data_set: 2c
 
 data:
   file_sep: ;
