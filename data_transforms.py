@@ -236,8 +236,8 @@ class DataAugmentations:
 
     def t_local_blackout(self, video):
 
-        bo_size_h = abs(np.random.normal(0, self.augmentations.blackout_h_std_dev))
-        bo_size_w = abs(np.random.normal(0, self.augmentations.blackout_w_std_dev))
+        bo_size_h = int(abs(np.random.normal(0, self.augmentations.blackout_h_std_dev)))
+        bo_size_w = int(abs(np.random.normal(0, self.augmentations.blackout_w_std_dev)))
 
         bo_pos_h = np.random.randint(0, video.shape[1] - bo_size_h)
         bo_pos_w = np.random.randint(0, video.shape[2] - bo_size_w)
@@ -252,8 +252,8 @@ class DataAugmentations:
 
     def t_local_intensity(self, video):
 
-        ints_size_h = abs(np.random.normal(0, self.augmentations.intensity_h_std_dev))
-        ints_size_w = abs(np.random.normal(0, self.augmentations.intensity_w_std_dev))
+        ints_size_h = int(abs(np.random.normal(0, self.augmentations.intensity_h_std_dev)))
+        ints_size_w = int(abs(np.random.normal(0, self.augmentations.intensity_w_std_dev)))
 
         ints_pos_h = np.random.randint(0, video.shape[1] - ints_size_h)
         ints_pos_w = np.random.randint(0, video.shape[2] - ints_size_w)

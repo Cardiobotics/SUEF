@@ -18,11 +18,11 @@ train_a:
   rotate: True
   rotate_std_dev_degrees: 10
 
-  local_blackout: False
+  local_blackout: True
   blackout_h_std_dev: 5
   blackout_w_std_dev: 5
 
-  local_intensity: False
+  local_intensity: True
   intensity_h_std_dev: 5
   intensity_w_std_dev: 5
   intensity_var: 0.1
