@@ -55,8 +55,7 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
     # Initialize scheduler
     use_scheduler = cfg.optimizer.use_scheduler
     if use_scheduler:
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=cfg.optimizer.s_patience,
-                                                               factor=cfg.optimizer.s_factor, threshold=1)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=cfg.optimizer.s_patience, factor=cfg.optimizer.s_factor)
 
     # Maximum value used for gradient clipping = max fp16/2
     gradient_clipping = cfg.performance.gradient_clipping
@@ -149,8 +148,6 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
               'Training R2 score: {r2.avg:.3f} \t'
               .format(i+1, batch_time=batch_time_t, data_time=data_time_t, loss=losses_t, r2=r2_values_t))
         end_time_v = time.time()
-        if use_scheduler:
-            scheduler.step(losses_t.avg)
 
         # Validation
         model.eval()
@@ -214,6 +211,9 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
               'Validation R2 score: {r2:.3f} \t'
               .format(i+1, batch_time=batch_time_v, data_time=data_time_v, loss=v_loss_mean, r2=v_r2))
         print('Example targets: {} \n Example outputs: {}'.format(torch.squeeze(targets_v), torch.squeeze(outputs_v)))
+
+        if use_scheduler:
+            scheduler.step(v_loss_mean)
 
         if cfg.training.checkpointing_enabled and cfg.logging.logging_enabled:
             if v_r2 > max_val_r2:

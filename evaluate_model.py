@@ -6,7 +6,7 @@ from sklearn.metrics import r2_score
 import hydra
 from utils import AverageMeter
 import os
-from models import i3d, ensemble
+from models import i3d, ensemble, i3d_bert
 from omegaconf import DictConfig, OmegaConf
 from npy_dataset import NPYDataset
 import numpy as np
@@ -17,12 +17,12 @@ import neptune
 @hydra.main(config_path="cfg", config_name="config")
 def main(cfg: DictConfig) -> None:
 
-    chkpt_path = '/home/ola/Projects/SUEF/saved_models/i3d_flow_3-Chamber.pth'
-    data_path = '/media/ola/324ac400-018f-4d6b-941e-361b54f3e5f6/flow/2'
-    target_path = '/home/ola/Projects/SUEF/data/train_inter_3c_2_4_flow.csv'
-    result_path = '/home/ola/Projects/SUEF/results/train_inter_3c_2_4_flow.csv'
+    chkpt_path = '/home/ola/Projects/SUEF/saved_models/i3d_bert_img_Sax_exp_SUEF-116.pth'
+    data_path = cfg.data.data_folder
+    target_path = '/home/ola/Projects/SUEF/data/val_data.csv'
+    result_path = '/home/ola/Projects/SUEF/results/sax_img.csv'
 
-    model = i3d.InceptionI3d(cfg.model.n_classes, in_channels=2)
+    model = i3d_bert.flow_I3D64f_bert2_FRMB('', cfg.model.length, cfg.model.n_classes,  cfg.model.n_input_channels, cfg.model.pre_n_classes, cfg.model.pre_n_input_channels)
 
     # Set visible devices
     parallel_model = cfg.performance.parallel_mode
@@ -52,11 +52,10 @@ def main(cfg: DictConfig) -> None:
     # Set loss criterion
     criterion = nn.MSELoss()
 
-    test_data_set = NPYDataset(data_path, target_path, cfg.transforms, cfg.augmentations.eval, cfg.data.file_sep)
+    test_data_set = NPYDataset(cfg.data, cfg.transforms.eval_t, cfg.augmentations.eval_a, cfg.data.val_targets)
 
-    test_data_loader = DataLoader(test_data_set, batch_size=cfg.data_loader.batch_size,
-                                  num_workers=cfg.data_loader.n_workers, drop_last=cfg.data_loader.drop_last,
-                                  shuffle=cfg.data_loader.shuffle)
+    test_data_loader = DataLoader(test_data_set, batch_size=cfg.data_loader.batch_size_eval,
+                                 num_workers=cfg.data_loader.n_workers, drop_last=cfg.data_loader.drop_last)
 
     losses = AverageMeter()
     r2_scores = AverageMeter()
@@ -65,7 +64,7 @@ def main(cfg: DictConfig) -> None:
     saved_uids = []
     saved_targets = []
 
-    for inputs, targets, uids in test_data_loader:
+    for inputs, targets, _, uids in test_data_loader:
 
         # Move input to CUDA if available
         if cuda_available:

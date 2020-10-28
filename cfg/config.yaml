@@ -4,7 +4,7 @@ defaults:
   - model_type: ${defaults.1.model}_${defaults.0.data_type}
   - transforms: ${defaults.0.data_type}
   - augmentations: ${defaults.0.data_type}
-  - data_set: 2c
+  - data_set: 3c
 
 data:
   file_sep: ;
@@ -39,7 +39,7 @@ optimizer:
   learning_rate: 0.001
   weight_decay: 0.0001
   use_scheduler: False
-  s_patience: 5
+  s_patience: 25
   s_factor: 0.1
 
 training:

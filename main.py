@@ -14,9 +14,13 @@ def main(cfg: DictConfig) -> None:
     assert cfg.model.name in ['ccnn', 'resnext', 'i3d', 'i3d_bert']
     assert cfg.data.type in ['img', 'flow', '2stream']
 
+    tags = []
+
     if cfg.model.name == 'ccnn':
+        tags.append('CNN')
         model = custom_cnn.CNN()
     elif cfg.model.name == 'resnext':
+        tags.append('ResNeXt')
         model = resnext.generate_model(model_depth=cfg.model.model_depth,
                                        cardinality=cfg.model.cardinality,
                                        n_classes=cfg.model.n_classes,
@@ -26,7 +30,9 @@ def main(cfg: DictConfig) -> None:
                                        conv1_t_stride=cfg.model.conv1_t_stride)
         model.load_state_dict(torch.load(cfg.model.pre_trained_checkpoint))
     elif cfg.model.name == 'i3d':
+        tags.append('I3D')
         if cfg.data.type == 'img':
+            tags.append('spatial')
             model = i3d.InceptionI3d(cfg.model.pre_n_classes, in_channels=cfg.model.n_input_channels)
             state_dict = torch.load(cfg.model.pre_trained_checkpoint)
             if not cfg.model.n_input_channels == cfg.model.pre_n_input_channels:
@@ -35,22 +41,32 @@ def main(cfg: DictConfig) -> None:
             model.load_state_dict(state_dict)
             model.replace_logits(cfg.model.n_classes)
         elif cfg.data.type == 'flow':
+            tags.append('temporal')
+            tags.append('TVL1')
             model = i3d.InceptionI3d(cfg.model.pre_n_classes, in_channels=cfg.model.n_input_channels)
             state_dict = torch.load(cfg.model.pre_trained_checkpoint)
             model.load_state_dict(state_dict)
             model.replace_logits(cfg.model.n_classes)
     elif cfg.model.name == 'i3d_bert':
+        tags.append('I3D')
+        tags.append('BERT')
         if cfg.training.continue_training:
             if cfg.data.type == 'img':
+                tags.append('spatial')
                 model = i3d_bert.rgb_I3D64f_bert2_FRMB('', cfg.model.length, cfg.model.n_classes,  cfg.model.n_input_channels, cfg.model.pre_n_classes, cfg.model.pre_n_input_channels)
             if cfg.data.type == 'flow':
+                tags.append('temporal')
+                tags.append('TVL1')
                 model = i3d_bert.flow_I3D64f_bert2_FRMB('', cfg.model.length, cfg.model.n_classes,  cfg.model.n_input_channels, cfg.model.pre_n_classes, cfg.model.pre_n_input_channels)
             state_dict = torch.load(cfg.model.best_model)['model']
             model.load_state_dict(state_dict)
         else:
             if cfg.data.type == 'img':
+                tags.append('spatial')
                 model = i3d_bert.rgb_I3D64f_bert2_FRMB(cfg.model.pre_trained_checkpoint, cfg.model.length, cfg.model.n_classes,  cfg.model.n_input_channels, cfg.model.pre_n_classes, cfg.model.pre_n_input_channels)
             if cfg.data.type == 'flow':
+                tags.append('temporal')
+                tags.append('TVL1')
                 model = i3d_bert.flow_I3D64f_bert2_FRMB(cfg.model.pre_trained_checkpoint, cfg.model.length, cfg.model.n_classes,  cfg.model.n_input_channels, cfg.model.pre_n_classes, cfg.model.pre_n_input_channels)
 
     train_data_loader, val_data_loader = create_data_loaders(cfg)
@@ -63,7 +79,7 @@ def main(cfg: DictConfig) -> None:
                              **dict(cfg.evaluation), 'data_stream': cfg.data.type, 'view': cfg.data.name,
                              'train_dataset_size': len(train_data_loader.dataset),
                              'val_dataset_size': len(val_data_loader.dataset)}
-        experiment = neptune.create_experiment(name=cfg.logging.experiment_name, params=experiment_params)
+        experiment = neptune.create_experiment(name=cfg.logging.experiment_name, params=experiment_params, tags=tags)
 
     train_and_validate(model, train_data_loader, val_data_loader, cfg, experiment=experiment)
 
