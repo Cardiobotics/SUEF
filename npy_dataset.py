@@ -6,9 +6,9 @@ import os
 import multiprocessing as mp
 
 
-class NPYDatasetMem(torch.utils.data.Dataset):
+class NPYDataset(torch.utils.data.Dataset):
     def __init__(self, cfg_data, cfg_transforms, cfg_augmentations, target_file):
-        super(NPYDatasetMem).__init__()
+        super(NPYDataset).__init__()
 
         self.targets = pd.read_csv(os.path.abspath(target_file), sep=cfg_data.file_sep)
         if cfg_transforms.scale_output:
