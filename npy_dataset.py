@@ -1,30 +1,36 @@
 import torch
 import pandas as pd
 import numpy as np
-import data_transforms
+import data_augmentations
 import os
 import multiprocessing as mp
 
 
-class NPYDataset(torch.utils.data.Dataset):
+class NPYDatasetMem(torch.utils.data.Dataset):
     def __init__(self, cfg_data, cfg_transforms, cfg_augmentations, target_file):
-        super(NPYDataset).__init__()
+        super(NPYDatasetMem).__init__()
 
         self.targets = pd.read_csv(os.path.abspath(target_file), sep=cfg_data.file_sep)
         if cfg_transforms.scale_output:
             self.targets['target'] = self.targets['target'].apply(lambda x: x / 100)
         self.targets = self.targets[self.targets['view'].isin(cfg_data.allowed_views)]
-        self.data_aug = data_transforms.DataAugmentations(cfg_transforms, cfg_augmentations)
+        self.data_aug = data_augmentations.DataAugmentations(cfg_transforms, cfg_augmentations)
         self.data_type = cfg_data.type
         self.data_list = []
         self.base_folder = cfg_data.data_folder
-        self.load_data_into_mem()
+        self.data_in_mem = cfg_data.data_in_mem
+        if self.data_in_mem:
+            self.data_list = []
+            self.load_data_into_mem()
 
     def __len__(self):
         return len(self.targets)
 
     def __getitem__(self, index):
-        img, target, uid = self.data_list[index]
+        if self.data_in_mem:
+            img, target, uid = self.data_list[index]
+        else:
+            img, target, uid = self.read_image_data(tuple(self.targets.iloc[index]))
         img = self.data_aug.transform_values(img)
         return img.transpose(3, 0, 1, 2), np.expand_dims(target, axis=0).astype(np.float32), index, uid
 

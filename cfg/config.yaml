@@ -7,6 +7,7 @@ defaults:
   - data_set: 3c
 
 data:
+  data_in_mem: False
   file_sep: ;
   base_target_folder: /home/ola/Projects/SUEF/data
   data_folder: ${data.base_data_folder}/${data.type}/
