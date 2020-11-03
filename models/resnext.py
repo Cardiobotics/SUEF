@@ -1,7 +1,7 @@
 import torch.nn as nn
 
 from models.resnet import conv1x1x1, Bottleneck, ResNet
-from utils import partialclass
+from utils.utils import partialclass
 
 
 def get_inplanes():

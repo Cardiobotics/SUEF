@@ -2,12 +2,17 @@ import cv2
 import numpy as np
 import time
 import argparse
-from utils import load_filenames
+from utils.utils import load_filenames
 import os
 import multiprocessing as mp
 
 
 def generate_flow(file):
+    '''
+    Generates optical flow from image data saved in numpy format on disk. The generated optical flow is saved on disk.
+    :param file: A tuple of the full path to file and the filename, generated from utils.load_filenames
+    :return: 1 if optical flow was generated and saved, 0 otherwise.
+    '''
     file_path, file_name = file
     uid = file_name[0:13]
     out_file_name = file_name[0:-4] + 'flow_.npy'
@@ -45,10 +50,10 @@ def generate_flow(file):
 
 
 parser = argparse.ArgumentParser(description='Converts input numpy grayscale data into optical flow')
-parser.add_argument('--input_folder', default='/media/ola/7540de01-b8d5-4df4-883c-1a8429f18b56/img/', type=str,
+parser.add_argument('--input_folder', type=str,
                     help='Input folder containing videos in 3-dimensional npy format')
-parser.add_argument('--output_folder', default='/media/ola/324ac400-018f-4d6b-941e-361b54f3e5f6/flow/',
-                    type=str, help='Output folder where we save the resulting optical flow')
+parser.add_argument('--output_folder', type=str,
+                    help='Output folder where we save the resulting optical flow')
 
 args = parser.parse_args()
 

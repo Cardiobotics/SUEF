@@ -1,16 +1,13 @@
 import torch
 import torch.nn as nn
-from utils import AverageMeter
+from utils.utils import AverageMeter
 from sklearn.metrics import r2_score
 import time
 from torch.cuda.amp import GradScaler
 from torch.cuda.amp import autocast
 import os
-import neptune
 import numpy as np
 import pandas as pd
-import hydra
-from omegaconf import DictConfig, OmegaConf
 
 
 def train_and_validate(model, train_data_loader, val_data_loader, cfg, experiment=None):

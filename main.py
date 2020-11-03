@@ -4,8 +4,8 @@ from models import custom_cnn, resnext, i3d, i3d_bert
 from training import train_and_validate
 import neptune
 import hydra
-from npy_dataset import NPYDataset
-from omegaconf import DictConfig, OmegaConf
+from data.npy_dataset import NPYDataset
+from omegaconf import DictConfig
 
 
 @hydra.main(config_path="cfg", config_name="config")

@@ -1,7 +1,8 @@
 import torch
 import pandas as pd
 import numpy as np
-import data_augmentations
+from data import data_augmentations
+import random
 import os
 import multiprocessing as mp
 
@@ -13,10 +14,9 @@ class NPYDataset(torch.utils.data.Dataset):
         self.targets = pd.read_csv(os.path.abspath(target_file), sep=cfg_data.file_sep)
         if cfg_transforms.scale_output:
             self.targets['target'] = self.targets['target'].apply(lambda x: x / 100)
-        self.targets = self.targets[self.targets['view'].isin(cfg_data.allowed_views)]
+        self.targets = self.targets[self.targets['view'].isin(cfg_data.allowed_views)].reset_index(drop=True)
         self.data_aug = data_augmentations.DataAugmentations(cfg_transforms, cfg_augmentations)
         self.data_type = cfg_data.type
-        self.data_list = []
         self.base_folder = cfg_data.data_folder
         self.data_in_mem = cfg_data.data_in_mem
         if self.data_in_mem:
@@ -28,9 +28,17 @@ class NPYDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         if self.data_in_mem:
-            img, target, uid = self.data_list[index]
+            exam = self.data_frame.iloc[index].us_id
+            all_exam_indx = self.data_frame[self.data_frame['us_id'] == exam].index
+            rndm_indx = random.choice(all_exam_indx)
+            img = self.data_frame.iloc[rndm_indx].img
+            target = self.data_frame.iloc[rndm_indx].target
+            uid = self.data_frame.iloc[rndm_indx].us_id
         else:
-            img, target, uid = self.read_image_data(tuple(self.targets.iloc[index]))
+            exam = self.targets.iloc[index].us_id
+            all_exam_indx = self.targets[self.targets['us_id'] == exam].index
+            rndm_indx = random.choice(all_exam_indx)
+            img, target, uid = self.read_image_data(tuple(self.targets.iloc[rndm_indx]))
         img = self.data_aug.transform_values(img)
         return img.transpose(3, 0, 1, 2), np.expand_dims(target, axis=0).astype(np.float32), index, uid
 
@@ -42,8 +50,10 @@ class NPYDataset(torch.utils.data.Dataset):
         result = pool.map(self.read_image_data, iterator)
         pool.close()
         pool.join()
+        data_list = []
         for r in result:
-            self.data_list.append(r)
+            data_list.append(r)
+        self.data_frame = pd.DataFrame(data_list, columns = ['img', 'target', 'us_id'])
         print('All data loaded into memory')
 
     def read_image_data(self, data):

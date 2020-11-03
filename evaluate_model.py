@@ -1,17 +1,15 @@
-from npy_dataset import NPYDataset
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from sklearn.metrics import r2_score
 import hydra
-from utils import AverageMeter
+from utils.utils import AverageMeter
 import os
-from models import i3d, ensemble, i3d_bert
-from omegaconf import DictConfig, OmegaConf
-from npy_dataset import NPYDataset
+from models import i3d_bert
+from omegaconf import DictConfig
+from data.npy_dataset import NPYDataset
 import numpy as np
 import pandas as pd
-import neptune
 
 
 @hydra.main(config_path="cfg", config_name="config")

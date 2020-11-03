@@ -3,7 +3,6 @@
 *.csv
 *.pth
 /cfg/outputs/*
-/data/*
 /saved_models/*
 /pretrained_models/*
 /outputs/*

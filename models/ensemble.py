@@ -24,11 +24,10 @@ class FlexEnsemble(nn.Module):
     def forward(self, *args):
         assert not len(args) == self.num_models
 
-        output = []
+        x = torch.zeros(self.num_models, requires_grad=True)
 
-        for y, model in zip(args, self.models):
-            output.append(model(y))
-        x = torch.cat(output, dim=1)
+        for i, (y, model) in enumerate(zip(args, self.models)):
+            x[i] = model(y)
 
         x = self.fc_linear(F.relu(x))
         return x

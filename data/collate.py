@@ -7,6 +7,12 @@ class CustomCollate():
         self.padding_enabled = padding_enabled
 
     def collate_fn(self, input_list):
+        '''
+        Custom collate method for a torch.utils.DataLoader object that pads the size of each video in the batch
+        to the maximum size for a video in the batch.
+        :param input_list: The batch of videos and targets, sent from DataLoader
+        :return: The processed batch of videos and targets.
+        '''
         batch_size = len(input_list)
         channels = max([i.shape[0] for i in input_list])
         max_length = max([i.shape[1] for i in input_list])

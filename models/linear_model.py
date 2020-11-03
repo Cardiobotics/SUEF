@@ -6,6 +6,9 @@ import torch.nn.functional as F
 
 
 class MultiViewLinear(nn.Module):
+    '''
+    Simple linear model for weighting output from single view models.
+    '''
     def __init__(self, input_size):
         super(MultiViewLinear, self).__init__()
         self.fc_linear = nn.Linear(input_size, 1)
