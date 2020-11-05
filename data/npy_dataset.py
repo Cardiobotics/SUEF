@@ -15,6 +15,7 @@ class NPYDataset(torch.utils.data.Dataset):
         if cfg_transforms.scale_output:
             self.targets['target'] = self.targets['target'].apply(lambda x: x / 100)
         self.targets = self.targets[self.targets['view'].isin(cfg_data.allowed_views)].reset_index(drop=True)
+        self.unique_exams = self.targets.drop_duplicates('us_id')['us_id'].copy()
         self.data_aug = data_augmentations.DataAugmentations(cfg_transforms, cfg_augmentations)
         self.data_type = cfg_data.type
         self.base_folder = cfg_data.data_folder
@@ -24,18 +25,17 @@ class NPYDataset(torch.utils.data.Dataset):
             self.load_data_into_mem()
 
     def __len__(self):
-        return len(self.targets)
+        return len(self.unique_exams)
 
     def __getitem__(self, index):
+        exam = self.unique_exams.iloc[index]
         if self.data_in_mem:
-            exam = self.data_frame.iloc[index].us_id
             all_exam_indx = self.data_frame[self.data_frame['us_id'] == exam].index
             rndm_indx = random.choice(all_exam_indx)
             img = self.data_frame.iloc[rndm_indx].img
             target = self.data_frame.iloc[rndm_indx].target
             uid = self.data_frame.iloc[rndm_indx].us_id
         else:
-            exam = self.targets.iloc[index].us_id
             all_exam_indx = self.targets[self.targets['us_id'] == exam].index
             rndm_indx = random.choice(all_exam_indx)
             img, target, uid = self.read_image_data(tuple(self.targets.iloc[rndm_indx]))

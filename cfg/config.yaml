@@ -9,7 +9,7 @@ defaults:
 data:
   data_in_mem: True
   file_sep: ;
-  base_target_folder: /home/ola/Projects/SUEF/data
+  base_target_folder: /media/ola/324ac400-018f-4d6b-941e-361b54f3e5f6/targets
   data_folder: ${data.base_data_folder}/${data.type}/
   train_targets: ${data.base_target_folder}/train_data.csv
   val_targets: ${data.base_target_folder}/val_data.csv
@@ -34,7 +34,7 @@ data_loader:
   n_workers: 10
   custom_collate: False
   drop_last: True
-  weighted_sampler: False
+  weighted_sampler: True
 
 optimizer:
   learning_rate: 0.001
