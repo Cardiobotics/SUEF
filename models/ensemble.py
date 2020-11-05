@@ -21,12 +21,12 @@ class FlexEnsemble(nn.Module):
 
         self.fc_linear = nn.Linear(self.num_models, 1)
 
-    def forward(self, *args):
-        assert not len(args) == self.num_models
+    def forward(self, input_tuple):
+        assert not len(input_tuple) == self.num_models
 
         x = torch.zeros(self.num_models, requires_grad=True)
 
-        for i, (y, model) in enumerate(zip(args, self.models)):
+        for i, (y, model) in enumerate(zip(input_tuple, self.models)):
             x[i] = model(y)
 
         x = self.fc_linear(F.relu(x))
