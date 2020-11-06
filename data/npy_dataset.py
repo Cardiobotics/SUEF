@@ -21,7 +21,6 @@ class NPYDataset(torch.utils.data.Dataset):
         self.base_folder = cfg_data.data_folder
         self.data_in_mem = cfg_data.data_in_mem
         if self.data_in_mem:
-            self.data_list = []
             self.load_data_into_mem()
 
     def __len__(self):

@@ -86,8 +86,12 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
             
             # Move input to CUDA if available
             if cuda_available:
+                if len(inputs_t) > 1:
+                    for p, inp in enumerate(inputs_t):
+                        inputs_t[p] = inp.to(device, non_blocking=True)
+                else:
+                    inputs_t = inputs_t.to(device, non_blocking=True)
                 targets_t = targets_t.to(device, non_blocking=True)
-                inputs_t = inputs_t.to(device, non_blocking=True)
 
             # Do forward and backwards pass
 
@@ -158,8 +162,12 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
 
             # Move input to CUDA if available
             if cuda_available:
+                if len(inputs_v) > 1:
+                    for p, inp in enumerate(inputs_v):
+                        inputs_v[p] = inp.to(device, non_blocking=True)
+                else:
+                    inputs_v = inputs_v.to(device, non_blocking=True)
                 targets_v = targets_v.to(device, non_blocking=True)
-                inputs_v = inputs_v.to(device, non_blocking=True)
             with torch.no_grad():
                 # Get model validation output and validation loss
                 with autocast(enabled=use_half_prec):

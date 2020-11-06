@@ -1,7 +1,7 @@
 # @package augmentations
 
 train_a:
-  gaussian_noise: True
+  gaussian_noise: False
   gn_var: 0.002
 
   speckle: False
