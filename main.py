@@ -111,7 +111,7 @@ def create_data_loaders(cfg):
     else:
         dataset_c = NPYDataset
     # Create DataLoaders for training and validation
-    train_d_set = dataset_c(cfg.data, cfg.transforms.train_t, cfg.augmentations.train_a, cfg.data.train_targets)
+    train_d_set = dataset_c(cfg.data, cfg.transforms.train_t, cfg.augmentations.train_a, cfg.data.train_targets, is_eval_set=False)
     train_d_size = len(train_d_set)
     print("Training dataset size: {}".format(train_d_size))
     if cfg.data_loader.weighted_sampler:
@@ -123,7 +123,7 @@ def create_data_loaders(cfg):
                                    num_workers=cfg.data_loader.n_workers, drop_last=cfg.data_loader.drop_last,
                                    sampler=sampler)
 
-    val_d_set = dataset_c(cfg.data, cfg.transforms.eval_t, cfg.augmentations.eval_a, cfg.data.val_targets)
+    val_d_set = dataset_c(cfg.data, cfg.transforms.eval_t, cfg.augmentations.eval_a, cfg.data.val_targets, is_eval_set=True)
     print("Validation dataset size: {}".format(len(val_d_set)))
     val_data_loader = DataLoader(val_d_set, batch_size=cfg.data_loader.batch_size_eval,
                                  num_workers=cfg.data_loader.n_workers, drop_last=cfg.data_loader.drop_last)

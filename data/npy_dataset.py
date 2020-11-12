@@ -8,9 +8,10 @@ import multiprocessing as mp
 
 
 class NPYDataset(torch.utils.data.Dataset):
-    def __init__(self, cfg_data, cfg_transforms, cfg_augmentations, target_file):
+    def __init__(self, cfg_data, cfg_transforms, cfg_augmentations, target_file, is_eval_set):
         super(NPYDataset).__init__()
 
+        self.is_eval_set = is_eval_set
         self.targets = pd.read_csv(os.path.abspath(target_file), sep=cfg_data.file_sep)
         if cfg_transforms.scale_output:
             self.targets['target'] = self.targets['target'].apply(lambda x: x / 100)
@@ -24,20 +25,26 @@ class NPYDataset(torch.utils.data.Dataset):
             self.load_data_into_mem()
 
     def __len__(self):
-        return len(self.unique_exams)
-
-    def __getitem__(self, index):
-        exam = self.unique_exams.iloc[index]
-        if self.data_in_mem:
-            all_exam_indx = self.data_frame[self.data_frame['us_id'] == exam].index
-            rndm_indx = random.choice(all_exam_indx)
-            img = self.data_frame.iloc[rndm_indx].img
-            target = self.data_frame.iloc[rndm_indx].target
-            uid = self.data_frame.iloc[rndm_indx].us_id
+        if self.is_eval_set:
+            return len(self.targets)
         else:
-            all_exam_indx = self.targets[self.targets['us_id'] == exam].index
-            rndm_indx = random.choice(all_exam_indx)
-            img, target, uid = self.read_image_data(tuple(self.targets.iloc[rndm_indx]))
+            return len(self.unique_exams)
+
+    def __getitem__(self, data_index):
+        if self.data_in_mem:
+            if not self.is_eval_set:
+                exam = self.unique_exams.iloc[data_index]
+                all_exam_indx = self.data_frame[self.data_frame['us_id'] == exam].index
+                data_index = random.choice(all_exam_indx)
+            img = self.data_frame.iloc[data_index].img
+            target = self.data_frame.iloc[data_index].target
+            uid = self.data_frame.iloc[data_index].us_id
+        else:
+            if not self.is_eval_set:
+                exam = self.unique_exams.iloc[data_index]
+                all_exam_indx = self.targets[self.targets['us_id'] == exam].index
+                data_index = random.choice(all_exam_indx)
+            img, target, uid = self.read_image_data(tuple(self.targets.iloc[data_index]))
         img = self.data_aug.transform_values(img)
         return img.transpose(3, 0, 1, 2), np.expand_dims(target, axis=0).astype(np.float32), index, uid
 

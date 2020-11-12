@@ -8,13 +8,17 @@ import random
 
 
 class TenStreamDataset(torch.utils.data.Dataset):
-    def __init__(self, cfg_data, cfg_transforms, cfg_augmentations, target_file):
+    def __init__(self, cfg_data, cfg_transforms, cfg_augmentations, target_file, is_eval_set):
         super(TenStreamDataset).__init__()
+
+        self.is_eval_set = is_eval_set
         self.allowed_views = cfg_data.allowed_views
         self.targets = pd.read_csv(os.path.abspath(target_file), sep=cfg_data.file_sep)
         if cfg_transforms.scale_output:
             self.targets['target'] = self.targets['target'].apply(lambda x: x / 100)
         self.filtered_targets = self.filter_incomplete_exams()
+        if is_eval_set:
+            self.generate_all_combinations()
         self.unique_exams = self.filtered_targets.drop_duplicates('us_id')['us_id']
         self.data_aug_img = data_augmentations.DataAugmentations(cfg_transforms, cfg_augmentations.img)
         self.data_aug_flow = data_augmentations.DataAugmentations(cfg_transforms, cfg_augmentations.flow)
@@ -83,4 +87,16 @@ class TenStreamDataset(torch.utils.data.Dataset):
         filtered_ue = unique_exams[view_arr].copy()
         filtered_targets = self.targets[self.targets['us_id'].isin(filtered_ue)].copy().reset_index(drop=True)
         return filtered_targets
+
+    def generate_all_combinations(self):
+        for ue in self.unique_exams:
+            t = self.targets[self.targets['us_id'] == ue]
+            view_list = []
+            for v in allowed_views:
+                view_list.append(t[t['view'] == v])
+            for i, vl in enumerate(view_list):
+                for j, v in vl.iterrows():
+
+
+
 
