@@ -5,6 +5,7 @@ from data import data_augmentations
 import os
 import multiprocessing as mp
 import random
+import itertools
 
 
 class EightStreamDataset(torch.utils.data.Dataset):
@@ -16,7 +17,7 @@ class EightStreamDataset(torch.utils.data.Dataset):
         self.targets = pd.read_csv(os.path.abspath(target_file), sep=cfg_data.file_sep)
         if cfg_transforms.scale_output:
             self.targets['target'] = self.targets['target'].apply(lambda x: x / 100)
-        self.unique_exams = self.filtered_targets.drop_duplicates('us_id')['us_id', 'target']
+        self.unique_exams = self.targets.drop_duplicates('us_id')[['us_id', 'target']]
         self.data_aug_img = data_augmentations.DataAugmentations(cfg_transforms, cfg_augmentations.img)
         self.data_aug_flow = data_augmentations.DataAugmentations(cfg_transforms, cfg_augmentations.flow)
         self.base_folder_img = cfg_data.data_folder_img
@@ -25,7 +26,10 @@ class EightStreamDataset(torch.utils.data.Dataset):
             self.generate_all_combinations()
 
     def __len__(self):
-        return len(self.unique_exams)
+        if self.is_eval_set:
+            return len(self.targets)
+        else:
+            return len(self.unique_exams)
 
     def __getitem__(self, index):
         if self.is_eval_set:
@@ -36,13 +40,13 @@ class EightStreamDataset(torch.utils.data.Dataset):
             for view in self.allowed_views:
                 iid = df['instance_id_' + str(view)]
                 if iid is None:
-                    img = torch.zeros((1, self.data_aug_img.transforms.target_length,
-                                       self.data_aug_img.transforms.target_height,
-                                       self.data_aug_img.transforms.target_width), dtype=float, requires_grad=False)
+                    img = np.zeros((1, self.data_aug_img.transforms.target_length,
+                                    self.data_aug_img.transforms.target_height,
+                                    self.data_aug_img.transforms.target_width), dtype=np.float32)
                     data_list.append(img)
-                    flow = torch.zeros((2, self.data_aug_flow.transforms.target_length,
-                                        self.data_aug_flow.transforms.target_height,
-                                        self.data_aug_flow.transforms.target_width), dtype=float, requires_grad=False)
+                    flow = np.zeros((2, self.data_aug_flow.transforms.target_length,
+                                     self.data_aug_flow.transforms.target_height,
+                                     self.data_aug_flow.transforms.target_width), dtype=np.float32)
                     data_list.append(flow)
                 else:
                     fps = df['fps_' + str(view)]
@@ -59,7 +63,7 @@ class EightStreamDataset(torch.utils.data.Dataset):
             target = self.unique_exams.iloc[index].target
             data_list = []
             for view in self.allowed_views:
-                df = self.filtered_targets[self.filtered_targets['view'] == view].reset_index(drop=True)
+                df = self.targets[self.targets['view'] == view].reset_index(drop=True)
                 all_exam_indx = df[df['us_id'] == exam].index
                 if len(all_exam_indx) > 0:
                     rndm_indx = random.choice(all_exam_indx)
@@ -69,13 +73,13 @@ class EightStreamDataset(torch.utils.data.Dataset):
                     flow = self.data_aug_flow.transform_values(flow).transpose(3, 0, 1, 2)
                     data_list.append(flow)
                 else:
-                    img = torch.zeros((1, self.data_aug_img.transforms.target_length,
+                    img = np.zeros((1, self.data_aug_img.transforms.target_length,
                                        self.data_aug_img.transforms.target_height,
-                                       self.data_aug_img.transforms.target_width), dtype=float, requires_grad=False)
+                                       self.data_aug_img.transforms.target_width), dtype=np.float32)
                     data_list.append(img)
-                    flow = torch.zeros((2, self.data_aug_flow.transforms.target_length,
+                    flow = np.zeros((2, self.data_aug_flow.transforms.target_length,
                                         self.data_aug_flow.transforms.target_height,
-                                        self.data_aug_flow.transforms.target_width), dtype=float, requires_grad=False)
+                                        self.data_aug_flow.transforms.target_width), dtype=np.float32)
                     data_list.append(flow)
 
         return data_list, np.expand_dims(target, axis=0).astype(np.float32), index, exam
@@ -125,18 +129,25 @@ class EightStreamDataset(torch.utils.data.Dataset):
         filtered_targets = self.targets[self.targets['us_id'].isin(filtered_ue)].copy().reset_index(drop=True)
         return filtered_targets
 
+    def combinate(self, items, size=4):
+        for cats in itertools.combinations(items.keys(), size):
+            cat_items = [[products for products in items[cat]] for cat in cats]
+            for x in itertools.product(*cat_items):
+                yield zip(cats, x)
+
     def generate_all_combinations(self):
         all_generated_combinations = []
-        for ue in self.unique_exams:
+        for ue in self.unique_exams.itertuples():
             new_dict = {}
             t = self.targets[self.targets['us_id'] == ue.us_id]
             for view in self.allowed_views:
-                ue_data = ue[ue['view'] == view][['instance_id', 'fps', 'hr', 'filename_img', 'filename_flow']].values.tolist()
+                ue_data = t[t.view == view][['instance_id', 'fps', 'hr', 'filename_img', 'filename_flow']].values.tolist()
                 if len(ue_data) > 0:
                     new_dict[view] = ue_data
                 else:
-                    new_dict[view] = [None, None, None, None, None]
-            ue_combs = combinate(new_dict)
+                    new_dict[view] = [[None, None, None, None, None]]
+            ue_combs = self.combinate(new_dict)
+
             for uec in ue_combs:
                 pd_dict = {'us_id': ue.us_id, 'target': ue.target}
                 for view, data in uec:
@@ -147,9 +158,3 @@ class EightStreamDataset(torch.utils.data.Dataset):
                     pd_dict['filename_flow_' + str(view)] = data[4]
                 all_generated_combinations.append(pd_dict)
         self.targets = pd.DataFrame(all_generated_combinations)
-
-    def combinate(self, items, size=4):
-        for cats in itertools.combinations(items.keys(), size):
-            cat_items = [[products for products in items[cat]] for cat in cats]
-            for x in itertools.product(*cat_items):
-                yield zip(cats, x)

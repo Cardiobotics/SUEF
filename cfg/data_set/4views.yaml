@@ -1,0 +1,5 @@
+# @package data
+
+name: 4-Views
+label: 4-views
+allowed_views: [0, 2, 4, 12]

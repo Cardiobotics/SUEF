@@ -1,12 +1,13 @@
 import torch
 from torch.utils.data import DataLoader, WeightedRandomSampler, RandomSampler
-from models import custom_cnn, resnext, i3d, i3d_bert, two_stream, ten_stream
+from models import custom_cnn, resnext, i3d, i3d_bert, two_stream, ten_stream, multi_stream_shared
 from training import train_and_validate
 import neptune
 import hydra
 from data.npy_dataset import NPYDataset
 from data.two_stream_dataset import TwoStreamDataset
 from data.ten_stream_dataset import TenStreamDataset
+from data.eight_stream_dataset import EightStreamDataset
 from omegaconf import DictConfig
 
 
@@ -14,7 +15,7 @@ from omegaconf import DictConfig
 def main(cfg: DictConfig) -> None:
 
     assert cfg.model.name in ['ccnn', 'resnext', 'i3d', 'i3d_bert', 'i3d_bert_2stream']
-    assert cfg.data.type in ['img', 'flow', 'two-stream', 'ten-stream']
+    assert cfg.data.type in ['img', 'flow', 'two-stream', 'ten-stream', 'eight-stream']
 
     tags = []
 
@@ -83,6 +84,12 @@ def main(cfg: DictConfig) -> None:
                 tags.append('TVL1')
                 model = two_stream.TwoStreamEnsemble(create_two_stream_models(cfg, cfg.model.pre_trained_checkpoint_img,
                                                                               cfg.model.pre_trained_checkpoint_flow))
+            if cfg.data.type == 'eight-stream':
+                tags.append('8-stream')
+                tags.append('TVL1')
+                model_img, model_flow = create_two_stream_models(cfg, cfg.model.pre_trained_checkpoint_img, cfg.model.pre_trained_checkpoint_flow)
+                model = multi_stream_shared.MultiStreamShared(model_img, model_flow, 8)
+
             if cfg.data.type == 'ten-stream':
                 tags.append('10-stream')
                 model = create_ten_stream_model(cfg, cfg.model.pre_trained_checkpoint_img,
@@ -108,6 +115,8 @@ def create_data_loaders(cfg):
         dataset_c = TwoStreamDataset
     elif cfg.data.type == 'ten-stream':
         dataset_c = TenStreamDataset
+    elif cfg.data.type == 'eight-stream':
+        dataset_c = EightStreamDataset
     else:
         dataset_c = NPYDataset
     # Create DataLoaders for training and validation

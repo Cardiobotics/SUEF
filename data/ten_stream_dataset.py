@@ -88,15 +88,5 @@ class TenStreamDataset(torch.utils.data.Dataset):
         filtered_targets = self.targets[self.targets['us_id'].isin(filtered_ue)].copy().reset_index(drop=True)
         return filtered_targets
 
-    def generate_all_combinations(self):
-        for ue in self.unique_exams:
-            t = self.targets[self.targets['us_id'] == ue]
-            view_list = []
-            for v in allowed_views:
-                view_list.append(t[t['view'] == v])
-            for i, vl in enumerate(view_list):
-                for j, v in vl.iterrows():
-
-
 
 

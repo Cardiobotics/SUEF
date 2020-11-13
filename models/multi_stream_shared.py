@@ -5,13 +5,13 @@ import torch
 import torch.nn.functional as F
 
 
-class TenStreamShared(nn.Module):
+class MultiStreamShared(nn.Module):
     '''
-    Ten-Stream model with shared weights.
+    Multi-Stream model with shared weights.
     '''
 
     def __init__(self, model_img, model_flow, num_m):
-        super(TenStreamShared, self).__init__()
+        super(MultiStreamShared, self).__init__()
 
         self.model_img_name = 'Model_img'
         self.model_img = model_img
@@ -21,7 +21,7 @@ class TenStreamShared(nn.Module):
         self.model_flow = model_flow
         self.add_module(self.model_flow_name, self.model_flow)
 
-        self.num_models = 8
+        self.num_models = num_m
 
         self.fc_name = 'Linear_layer'
         self.fc_linear = nn.Linear(self.num_models, 1)
@@ -30,13 +30,13 @@ class TenStreamShared(nn.Module):
     def forward(self, x):
         assert len(x) == self.num_models
 
-        y = torch.tensor()
+        y = []
 
-        for i, input in enumerate(x):
+        for i, inp in enumerate(x):
             if i % 2 == 0:
-                y = torch.cat((y, self.model_img(input)))
+                y.append(self.model_img(inp))
             else:
-                y = torch.cat((y, self.model_flow(input)))
-
+                y.append(self.model_flow(inp))
+        y = torch.stack(y, dim=1).squeeze()
         y = self.fc_linear(F.relu(y))
         return y

@@ -1,13 +1,13 @@
 defaults:
-  - data_type: img
+  - data_type: 8stream
   - model: i3d_bert
   - model_type: ${defaults.1.model}_${defaults.0.data_type}
   - transforms: ${defaults.0.data_type}
   - augmentations: ${defaults.0.data_type}
-  - data_set: 3c
+  - data_set: 4views
 
 data:
-  data_in_mem: True
+  data_in_mem: False
   file_sep: ;
   base_target_folder: /media/ola/324ac400-018f-4d6b-941e-361b54f3e5f6/targets
   data_folder: ${data.base_data_folder}/${data.type}/
@@ -16,7 +16,7 @@ data:
   test_targets: ${data.base_target_folder}/test_data.csv
 
 logging:
-  logging_enabled: True
+  logging_enabled: False
   project_name: 'eiphodos/SUEF'
   experiment_name: ${model.name}
 
@@ -45,10 +45,10 @@ optimizer:
 
 training:
   epochs: 100
-  checkpointing_enabled: True
+  checkpointing_enabled: False
   continue_training: False
   checkpoint_save_path: /home/ola/Projects/SUEF/saved_models/
   freeze_lower: False
 
 evaluation:
-  use_best_sample: True
+  use_best_sample: False
