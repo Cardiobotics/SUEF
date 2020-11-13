@@ -8,9 +8,9 @@ import random
 import itertools
 
 
-class EightStreamDataset(torch.utils.data.Dataset):
+class MultiStreamDataset(torch.utils.data.Dataset):
     def __init__(self, cfg_data, cfg_transforms, cfg_augmentations, target_file, is_eval_set):
-        super(EightStreamDataset).__init__()
+        super(MultiStreamDataset).__init__()
 
         self.is_eval_set = is_eval_set
         self.allowed_views = cfg_data.allowed_views
@@ -53,7 +53,7 @@ class EightStreamDataset(torch.utils.data.Dataset):
                     hr = df['hr_' + str(view)]
                     file_img = df['filename_img_' + str(view)]
                     file_flow = df['filename_flow_' + str(view)]
-                    img, flow, _, _ = self.read_image_data(tuple(exam, 0, 0, fps, hr, file_img, file_flow))
+                    img, flow, _, _ = self.read_image_data(tuple((exam, 0, 0, fps, hr, file_img, file_flow)))
                     img = self.data_aug_img.transform_values(img).transpose(3, 0, 1, 2)
                     data_list.append(img)
                     flow = self.data_aug_flow.transform_values(flow).transpose(3, 0, 1, 2)

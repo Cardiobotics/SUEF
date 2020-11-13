@@ -1,10 +1,10 @@
 defaults:
-  - data_type: 8stream
+  - data_type: multistream
   - model: i3d_bert
   - model_type: ${defaults.1.model}_${defaults.0.data_type}
   - transforms: ${defaults.0.data_type}
   - augmentations: ${defaults.0.data_type}
-  - data_set: 4views
+  - data_set: 8stream
 
 data:
   data_in_mem: False

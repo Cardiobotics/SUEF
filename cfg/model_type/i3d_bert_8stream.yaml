@@ -1,9 +1,0 @@
-# @package model
-
-pre_trained_checkpoint_flow: /home/ola/Projects/SUEF/pretrained_models/i3d_bert_flow_imagenet.pth
-pre_trained_checkpoint_img: /home/ola/Projects/SUEF/pretrained_models/i3d_bert_rgb_imagenet.pth
-
-n_input_channels_img: 1
-pre_n_input_channels_img: 3
-n_input_channels_flow: 2
-pre_n_input_channels_flow: 2

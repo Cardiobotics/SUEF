@@ -6,8 +6,7 @@ import neptune
 import hydra
 from data.npy_dataset import NPYDataset
 from data.two_stream_dataset import TwoStreamDataset
-from data.ten_stream_dataset import TenStreamDataset
-from data.eight_stream_dataset import EightStreamDataset
+from data.multi_stream_dataset import MultiStreamDataset
 from omegaconf import DictConfig
 
 
@@ -111,12 +110,8 @@ def main(cfg: DictConfig) -> None:
 
 
 def create_data_loaders(cfg):
-    if cfg.data.type == 'two-stream':
-        dataset_c = TwoStreamDataset
-    elif cfg.data.type == 'ten-stream':
-        dataset_c = TenStreamDataset
-    elif cfg.data.type == 'eight-stream':
-        dataset_c = EightStreamDataset
+    if cfg.data.type == 'multi-stream':
+        dataset_c = MultiStreamDataset
     else:
         dataset_c = NPYDataset
     # Create DataLoaders for training and validation

@@ -1,5 +1,5 @@
 # @package data
 
-name: 4-Views
-label: 4-views
+name: 8-Stream
+label: 8-Stream
 allowed_views: [0, 2, 4, 12]

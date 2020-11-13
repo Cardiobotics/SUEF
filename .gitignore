@@ -6,3 +6,4 @@
 /saved_models/*
 /pretrained_models/*
 /outputs/*
+/utils/outputs/*
