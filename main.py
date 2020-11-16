@@ -14,7 +14,7 @@ from omegaconf import DictConfig
 def main(cfg: DictConfig) -> None:
 
     assert cfg.model.name in ['ccnn', 'resnext', 'i3d', 'i3d_bert', 'i3d_bert_2stream']
-    assert cfg.data.type in ['img', 'flow', 'two-stream', 'ten-stream', 'eight-stream']
+    assert cfg.data.type in ['img', 'flow', 'two-stream', 'ten-stream', 'eight-stream', 'multi-stream']
 
     tags = []
 
@@ -83,16 +83,12 @@ def main(cfg: DictConfig) -> None:
                 tags.append('TVL1')
                 model = two_stream.TwoStreamEnsemble(create_two_stream_models(cfg, cfg.model.pre_trained_checkpoint_img,
                                                                               cfg.model.pre_trained_checkpoint_flow))
-            if cfg.data.type == 'eight-stream':
-                tags.append('8-stream')
+            if cfg.data.type == 'multi-stream':
+                tags.append('multi-stream')
                 tags.append('TVL1')
                 model_img, model_flow = create_two_stream_models(cfg, cfg.model.pre_trained_checkpoint_img, cfg.model.pre_trained_checkpoint_flow)
-                model = multi_stream_shared.MultiStreamShared(model_img, model_flow, 8)
+                model = multi_stream_shared.MultiStreamShared(model_img, model_flow, len(cfg.data.allowed_views)*2)
 
-            if cfg.data.type == 'ten-stream':
-                tags.append('10-stream')
-                model = create_ten_stream_model(cfg, cfg.model.pre_trained_checkpoint_img,
-                                                cfg.model.pre_trained_checkpoint_flow)
 
     train_data_loader, val_data_loader = create_data_loaders(cfg)
 

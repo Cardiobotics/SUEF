@@ -39,7 +39,7 @@ class MultiStreamDataset(torch.utils.data.Dataset):
             data_list = []
             for view in self.allowed_views:
                 iid = df['instance_id_' + str(view)]
-                if iid is None:
+                if iid is None or exam is None or target is None:
                     img = np.zeros((1, self.data_aug_img.transforms.target_length,
                                     self.data_aug_img.transforms.target_height,
                                     self.data_aug_img.transforms.target_width), dtype=np.float32)
@@ -53,7 +53,7 @@ class MultiStreamDataset(torch.utils.data.Dataset):
                     hr = df['hr_' + str(view)]
                     file_img = df['filename_img_' + str(view)]
                     file_flow = df['filename_flow_' + str(view)]
-                    img, flow, _, _ = self.read_image_data(tuple((exam, 0, 0, fps, hr, file_img, file_flow)))
+                    img, flow, _, _ = self.read_image_data(tuple((exam, 0, 0, fps, hr, file_img, file_flow, target)))
                     img = self.data_aug_img.transform_values(img).transpose(3, 0, 1, 2)
                     data_list.append(img)
                     flow = self.data_aug_flow.transform_values(flow).transpose(3, 0, 1, 2)
