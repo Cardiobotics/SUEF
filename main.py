@@ -1,6 +1,6 @@
 import torch
 from torch.utils.data import DataLoader, WeightedRandomSampler, RandomSampler
-from models import custom_cnn, resnext, i3d, i3d_bert, two_stream, ten_stream, multi_stream_shared
+from models import custom_cnn, resnext, i3d, i3d_bert, two_stream, ten_stream, multi_stream
 from training import train_and_validate
 import neptune
 import hydra
