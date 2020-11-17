@@ -63,8 +63,8 @@ class MultiStreamDataset(torch.utils.data.Dataset):
             target = self.unique_exams.iloc[index].target
             data_list = []
             for view in self.allowed_views:
-                df = self.targets[self.targets['view'] == view].reset_index(drop=True)
-                all_exam_indx = df[df['us_id'] == exam].index
+                df = self.targets[self.targets['us_id'] == exam].reset_index(drop=True)
+                all_exam_indx = df[df['view'] == view].index
                 if len(all_exam_indx) > 0:
                     rndm_indx = random.choice(all_exam_indx)
                     img, flow, _, _ = self.read_image_data(tuple(df.iloc[rndm_indx]))
@@ -121,6 +121,11 @@ class MultiStreamDataset(torch.utils.data.Dataset):
             print("Failed to get item for img file: {} and flow file: {} with exception: {}".format(file_img, file_flow, e))
 
     def filter_incomplete_exams(self):
+        '''
+        Can be used to filter targets for all exams that does not have at least one of every view in allowed_views.
+        Not currently used.
+        :return: Pandas dataframe with only exams that have one of every view.
+        '''
         unique_exams = self.targets.drop_duplicates('us_id')['us_id'].copy()
         view_arr = []
         for row in unique_exams:
@@ -130,12 +135,25 @@ class MultiStreamDataset(torch.utils.data.Dataset):
         return filtered_targets
 
     def combinate(self, items, size=4):
+        '''
+        Returns a generator that yields pairs of every combination of items in all categories
+        :param items: Dictionary with the format {category A: list of items in category A, category B: list of items in category B}
+        :param size: how many items we return in each combination.
+        :return: A generator that yields every combination.
+        '''
         for cats in itertools.combinations(items.keys(), size):
             cat_items = [[products for products in items[cat]] for cat in cats]
             for x in itertools.product(*cat_items):
                 yield zip(cats, x)
 
     def generate_all_combinations(self):
+        '''
+        Generates all possible combinations of views in an examination and uses all those combinations as the dataset.
+        If a view is missing, the examination is still used and the view is set to None.
+        As an example, if a unique exam has one view of type A, two views of type B and 2 views of type C then four
+        different combinations would be added to the final dataset.
+        :return:
+        '''
         all_generated_combinations = []
         for ue in self.unique_exams.itertuples():
             new_dict = {}
@@ -146,7 +164,7 @@ class MultiStreamDataset(torch.utils.data.Dataset):
                     new_dict[view] = ue_data
                 else:
                     new_dict[view] = [[None, None, None, None, None]]
-            ue_combs = self.combinate(new_dict)
+            ue_combs = self.combinate(new_dict, len(self.allowed_views))
 
             for uec in ue_combs:
                 pd_dict = {'us_id': ue.us_id, 'target': ue.target}

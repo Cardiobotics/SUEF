@@ -67,6 +67,8 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
 
     for i in range(cfg.training.epochs):
 
+        start_time_epoch = time.time()
+
         batch_time_t = AverageMeter()
         data_time_t = AverageMeter()
         losses_t = AverageMeter()
@@ -190,6 +192,16 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
 
             # Update timer for batch
             batch_time_v.update(time.time() - end_time_v)
+
+            if k % 100 == 0:
+                print('Validation Batch: [{}/{}] in epoch: {} \t '
+                      'Validation Time: {batch_time.val:.3f} ({batch_time.avg:.3f}) \t '
+                      'Validation Data Time: {data_time.val:.3f} ({data_time.avg:.3f}) \t '
+                      'Validation Loss: {loss.val:.4f} ({loss.avg:.4f}) \t '
+                      'Validation R2 Score: {r2.val:.3f} ({r2.avg:.3f}) \t'
+                      .format(k+1, len(val_data_loader), i + 1, batch_time=batch_time_v, data_time=data_time_v,
+                              loss=losses_v, r2=r2_values_v))
+
             end_time_v = time.time()
 
         if cfg.evaluation.use_best_sample:
@@ -236,6 +248,11 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
         if cfg.logging.logging_enabled:
             log_metrics(experiment, losses_t.avg, r2_values_t.avg, v_loss_mean, v_r2, max_val_r2)
 
+        epoch_time = time.time() - start_time_epoch
+        rem_epochs = cfg.training.epochs - (i+1)
+        rem_time = rem_epochs * epoch_time
+        print('Epoch {} completed. Time to complete: {}. Estimated remaining time: {}'.format(i+1, epoch_time, format_time(rem_time)))
+
 
 def log_metrics(experiment, t_loss, t_r2, v_loss, v_r2, best_v_r2):
     experiment.log_metric('training_loss', t_loss)
@@ -255,3 +272,11 @@ def save_checkpoint(save_file_path, model, optimizer):
         'optimizer': optimizer.state_dict(),
     }
     torch.save(save_states, save_file_path)
+
+def format_time(time_as_seconds):
+    s = time.localtime(time_as_seconds)
+    seconds = s.tm_sec
+    minutes = s.tm_min
+    hours = s.tm_hour
+    days = s.tm_yday - 1
+    return '{} days, {} hours, {} minutes and {} seconds'.format(days, hours, minutes, seconds)

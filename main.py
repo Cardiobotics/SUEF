@@ -8,6 +8,11 @@ from data.npy_dataset import NPYDataset
 from data.two_stream_dataset import TwoStreamDataset
 from data.multi_stream_dataset import MultiStreamDataset
 from omegaconf import DictConfig
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logging.getLogger('numexpr').setLevel(logging.WARNING)
+
 
 
 @hydra.main(config_path="cfg", config_name="config")
