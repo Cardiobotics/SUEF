@@ -92,7 +92,7 @@ def main(cfg: DictConfig) -> None:
                 tags.append('multi-stream')
                 tags.append('TVL1')
                 model_img, model_flow = create_two_stream_models(cfg, cfg.model.pre_trained_checkpoint_img, cfg.model.pre_trained_checkpoint_flow)
-                model = multi_stream_shared.MultiStreamShared(model_img, model_flow, len(cfg.data.allowed_views)*2)
+                model = multi_stream.MultiStreamShared(model_img, model_flow, len(cfg.data.allowed_views)*2)
 
 
     train_data_loader, val_data_loader = create_data_loaders(cfg)
