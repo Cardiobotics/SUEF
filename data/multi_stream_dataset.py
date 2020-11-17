@@ -39,7 +39,7 @@ class MultiStreamDataset(torch.utils.data.Dataset):
             data_list = []
             for view in self.allowed_views:
                 iid = df['instance_id_' + str(view)]
-                if iid is None or exam is None or target is None:
+                if np.isnan(iid):
                     img = np.zeros((1, self.data_aug_img.transforms.target_length,
                                     self.data_aug_img.transforms.target_height,
                                     self.data_aug_img.transforms.target_width), dtype=np.float32)
