@@ -91,9 +91,20 @@ def main(cfg: DictConfig) -> None:
             if cfg.data.type == 'multi-stream':
                 tags.append('multi-stream')
                 tags.append('TVL1')
-                model_img, model_flow = create_two_stream_models(cfg, cfg.model.pre_trained_checkpoint_img, cfg.model.pre_trained_checkpoint_flow)
-                model = multi_stream.MultiStreamShared(model_img, model_flow, len(cfg.data.allowed_views)*2)
-
+                if cfg.model.shared_weights:
+                    tags.append('shared-weights')
+                    model_img, model_flow = create_two_stream_models(cfg, cfg.model.pre_trained_checkpoint_img, cfg.model.pre_trained_checkpoint_flow)
+                    model = multi_stream.MultiStreamShared(model_img, model_flow, len(cfg.data.allowed_views)*2)
+                else:
+                    model_dict = {}
+                    for view in cfg.data.allowed_views:
+                        m_img_name = 'model_img_' + str(view)
+                        m_flow_name = 'model_flow_' + str(view)
+                        model_img, model_flow = create_two_stream_models(cfg, cfg.model.pre_trained_checkpoint_img,
+                                                                         cfg.model.pre_trained_checkpoint_flow)
+                        model_dict[m_img_name] = model_img
+                        model_dict[m_flow_name] = model_flow
+                    model = multi_stream.MultiStream(model_dict)
 
     train_data_loader, val_data_loader = create_data_loaders(cfg)
 
@@ -144,19 +155,6 @@ def create_two_stream_models(cfg, checkpoint_img, checkpoint_flow):
                                                  cfg.model.n_classes, cfg.model.n_input_channels_flow,
                                                  cfg.model.pre_n_classes, cfg.model.pre_n_input_channels_flow)
     return model_img, model_flow
-
-
-def create_ten_stream_model(cfg, checkpoint_img, checkpoint_flow):
-    model_2c_img, model_2c_flow = create_two_stream_models(cfg, checkpoint_img, checkpoint_flow)
-    model_3c_img, model_3c_flow = create_two_stream_models(cfg, checkpoint_img, checkpoint_flow)
-    model_4c_img, model_4c_flow = create_two_stream_models(cfg, checkpoint_img, checkpoint_flow)
-    model_lax_img, model_lax_flow = create_two_stream_models(cfg, checkpoint_img, checkpoint_flow)
-    model_sax_img, model_sax_flow = create_two_stream_models(cfg, checkpoint_img, checkpoint_flow)
-    model = ten_stream.TenStreamEnsemble(model_2c_img, model_2c_flow, model_3c_img, model_3c_flow, model_4c_img,
-                                         model_4c_flow, model_lax_img, model_lax_flow, model_sax_img, model_sax_flow)
-    return model
-
-
 
 
 if __name__ == "__main__":

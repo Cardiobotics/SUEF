@@ -11,16 +11,16 @@ class MultiStream(nn.Module):
     Args are assumed to be models, alternating between img and flow.
     '''
 
-    def __init__(self, **kwargs):
+    def __init__(self, model_dict):
         super(MultiStream, self).__init__()
 
         self.endpoints = {}
 
-        for model_name, model in kwargs.items():
+        for model_name, model in model_dict.items():
             self.endpoints[model_name] = model
             self.add_module(model_name, model)
 
-        self.num_models = len(kwargs.items())
+        self.num_models = len(model_dict.items())
 
         fc_name = 'Linear_layer'
         fc_linear = nn.Linear(self.num_models, 1)
