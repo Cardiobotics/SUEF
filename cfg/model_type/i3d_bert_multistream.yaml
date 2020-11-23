@@ -7,3 +7,5 @@ n_input_channels_img: 1
 pre_n_input_channels_img: 3
 n_input_channels_flow: 2
 pre_n_input_channels_flow: 2
+
+shared_weights: True

@@ -63,7 +63,7 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
 
     # Begin training
 
-    max_val_r2 = 0
+    max_val_r2 = -10000
 
     for i in range(cfg.training.epochs):
 

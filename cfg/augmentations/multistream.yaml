@@ -2,55 +2,55 @@
 
 train_a:
   img:
-    gaussian_noise: False
+    gaussian_noise: True
     gn_var: 0.002
 
-    speckle: False
+    speckle: True
     speckle_var: 0.002
 
     salt_and_pepper: False
     salt_and_pepper_amount: 0.05 
 
-    translate_v: False
+    translate_v: True
     translate_v_std_dev_pxl: 3
-    translate_h: False
+    translate_h: True
     translate_h_std_dev_pxl: 3
 
-    rotate: False
+    rotate: True
     rotate_std_dev_degrees: 8
 
-    local_blackout: False
+    local_blackout: True
     blackout_h_std_dev: 3
     blackout_w_std_dev: 3
 
-    local_intensity: False
+    local_intensity: True
     intensity_h_std_dev: 3
     intensity_w_std_dev: 3
     intensity_var: 0.05
 
   flow:
-    gaussian_noise: False
+    gaussian_noise: True
     gn_var: 0.002
 
-    speckle: False
+    speckle: True
     speckle_var: 0.002
 
     salt_and_pepper: False
     salt_and_pepper_amount: 0.05 
 
-    translate_v: False
+    translate_v: True
     translate_v_std_dev_pxl: 3
-    translate_h: False
+    translate_h: True
     translate_h_std_dev_pxl: 3
 
-    rotate: False
+    rotate: True
     rotate_std_dev_degrees: 8
 
-    local_blackout: False
+    local_blackout: True
     blackout_h_std_dev: 3
     blackout_w_std_dev: 3
 
-    local_intensity: False
+    local_intensity: True
     intensity_h_std_dev: 3
     intensity_w_std_dev: 3
     intensity_var: 0.05

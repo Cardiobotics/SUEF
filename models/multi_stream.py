@@ -8,7 +8,6 @@ import torch.nn.functional as F
 class MultiStream(nn.Module):
     '''
     Multi-Stream model.
-    Args are assumed to be models, alternating between img and flow.
     '''
 
     def __init__(self, model_dict):

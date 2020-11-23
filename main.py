@@ -1,6 +1,6 @@
 import torch
 from torch.utils.data import DataLoader, WeightedRandomSampler, RandomSampler
-from models import custom_cnn, resnext, i3d, i3d_bert, two_stream, ten_stream, multi_stream
+from models import custom_cnn, resnext, i3d, i3d_bert, two_stream, multi_stream
 from training import train_and_validate
 import neptune
 import hydra
@@ -9,6 +9,7 @@ from data.two_stream_dataset import TwoStreamDataset
 from data.multi_stream_dataset import MultiStreamDataset
 from omegaconf import DictConfig
 import logging
+import os
 
 logging.basicConfig(level=logging.INFO)
 logging.getLogger('numexpr').setLevel(logging.WARNING)
@@ -117,6 +118,9 @@ def main(cfg: DictConfig) -> None:
                              'train_dataset_size': len(train_data_loader.dataset),
                              'val_dataset_size': len(val_data_loader.dataset)}
         experiment = neptune.create_experiment(name=cfg.logging.experiment_name, params=experiment_params, tags=tags)
+
+    if not os.path.exists(cfg.training.checkpoint_save_path):
+        os.makedirs(cfg.training.checkpoint_save_path)
 
     train_and_validate(model, train_data_loader, val_data_loader, cfg, experiment=experiment)
 

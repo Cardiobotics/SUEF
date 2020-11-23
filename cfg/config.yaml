@@ -16,7 +16,7 @@ data:
   test_targets: ${data.base_target_folder}/test_data.csv
 
 logging:
-  logging_enabled: False
+  logging_enabled: True
   project_name: 'eiphodos/SUEF'
   experiment_name: ${model.name}
 
@@ -37,15 +37,15 @@ data_loader:
   weighted_sampler: True
 
 optimizer:
-  learning_rate: 0.001
-  weight_decay: 0.0001
+  learning_rate: 0.01
+  weight_decay: 0.001
   use_scheduler: True
   s_patience: 35
   s_factor: 0.1
 
 training:
   epochs: 100
-  checkpointing_enabled: False
+  checkpointing_enabled: True
   continue_training: False
   checkpoint_save_path: /home/ola/Projects/SUEF/saved_models/
   freeze_lower: False
