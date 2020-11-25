@@ -81,6 +81,7 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
 
         end_time_t = time.time()
         # Training
+        '''
         model.train()
         for j, (inputs_t, targets_t, indexes_t, _) in enumerate(train_data_loader):
             # Update timer for data retrieval
@@ -150,9 +151,11 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
               'Training Loss: {loss.avg:.4f} \t '
               'Training R2 score: {r2.avg:.3f} \t'
               .format(i+1, batch_time=batch_time_t, data_time=data_time_t, loss=losses_t, r2=r2_values_t))
-        end_time_v = time.time()
+        '''
 
         # Validation
+
+        end_time_v = time.time()
         model.eval()
         all_out_v = np.zeros((0))
         all_target_v = np.zeros((0))
@@ -177,6 +180,9 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                     loss_v = criterion(outputs_v, targets_v)
                     loss_mean_v = loss_v.mean()
 
+            # Update timer for batch
+            batch_time_v.update(time.time() - end_time_v)
+
             # Update metrics
             if cfg.evaluation.use_best_sample:
                 all_out_v = np.concatenate((all_out_v, outputs_v.squeeze(axis=1).cpu().detach().numpy()))
@@ -190,17 +196,14 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                 r2_values_v.update(r2_v)
                 losses_v.update(loss_mean_v)
 
-            # Update timer for batch
-            batch_time_v.update(time.time() - end_time_v)
-
-            if k % 100 == 0:
-                print('Validation Batch: [{}/{}] in epoch: {} \t '
-                      'Validation Time: {batch_time.val:.3f} ({batch_time.avg:.3f}) \t '
-                      'Validation Data Time: {data_time.val:.3f} ({data_time.avg:.3f}) \t '
-                      'Validation Loss: {loss.val:.4f} ({loss.avg:.4f}) \t '
-                      'Validation R2 Score: {r2.val:.3f} ({r2.avg:.3f}) \t'
-                      .format(k+1, len(val_data_loader), i + 1, batch_time=batch_time_v, data_time=data_time_v,
-                              loss=losses_v, r2=r2_values_v))
+                if k % 100 == 0:
+                    print('Validation Batch: [{}/{}] in epoch: {} \t '
+                          'Validation Time: {batch_time.val:.3f} ({batch_time.avg:.3f}) \t '
+                          'Validation Data Time: {data_time.val:.3f} ({data_time.avg:.3f}) \t '
+                          'Validation Loss: {loss.val:.4f} ({loss.avg:.4f}) \t '
+                          'Validation R2 Score: {r2.val:.3f} ({r2.avg:.3f}) \t'
+                          .format(k + 1, len(val_data_loader), i + 1, batch_time=batch_time_v, data_time=data_time_v,
+                                  loss=losses_v, r2=r2_values_v))
 
             end_time_v = time.time()
 
@@ -210,11 +213,21 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
             val_data = val_data.transpose(1, 0)
             pd_val_data = pd.DataFrame(val_data, columns=['us_id', 'output', 'target', 'loss'])
             pd_val_data[['output', 'target', 'loss']] = pd_val_data[['output', 'target', 'loss']].astype(np.float32)
-            pd_val_data.sort_values('loss', ascending=True, inplace=True)
-            pd_val_data.drop_duplicates(subset='us_id', inplace=True)
-            v_loss_mean = pd_val_data['loss'].mean()
-            outputs = pd_val_data['output'].to_numpy(dtype=np.float32)
-            targets = pd_val_data['target'].to_numpy(dtype=np.float32)
+            val_ue = pd_val_data.drop_duplicates(subset='us_id')[['us_id', 'target']]
+            all_mean_output = []
+            all_mean_loss = []
+            all_unique_targets = []
+            for ue in val_ue.itertuples():
+                exam_results = pd_val_data[pd_val_data['us_id'] == ue.us_id]
+                mean_exam_output = exam_results['output'].mean()
+                all_mean_output.append(mean_exam_output)
+                mean_exam_loss = exam_results['loss'].mean()
+                all_mean_loss.append(mean_exam_loss)
+                all_unique_targets.append(ue.target)
+            np_loss = np.array(all_mean_loss, dtype=np.float32)
+            v_loss_mean = np_loss.mean()
+            outputs = np.array(all_mean_output, dtype=np.float32)
+            targets = np.array(all_unique_targets, dtype=np.float32)
             v_r2 = r2_score(targets, outputs)
         else:
             v_loss_mean = losses_v.avg

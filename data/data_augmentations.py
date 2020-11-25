@@ -28,18 +28,34 @@ class DataAugmentations:
             self.white_val = 255.0
 
     def transform_values(self, img):
-
+        time_start = time.time()
         # Pixel values expected to be in range 0-255
         if self.transforms.normalize_input:
             img = self.t_normalize_signed(img)
+        if self.debug:
+            time_ni = time.time()
+            time_ni_diff = time_ni - time_start
+            print("Normalized input. Time to process: {}".format(time_ni_diff))
 
         # Add some kind of noise to the image
         if self.augmentations.gaussian_noise:
             img = self.t_gaussian_noise(img)
+        if self.debug:
+            time_gn = time.time()
+            time_gn_diff = time_gn - time_ni
+            print("Added gaussian noise. Time to process: {}".format(time_gn_diff))
         if self.augmentations.speckle:
             img = self.t_speckle(img)
+        if self.debug:
+            time_spk = time.time()
+            time_spk_diff = time_spk - time_gn
+            print("Added speckle. Time to process: {}".format(time_spk_diff))
         if self.augmentations.salt_and_pepper:
             img = self.t_salt_and_pepper(img)
+        if self.debug:
+            time_sp = time.time()
+            time_sp_diff = time_sp - time_spk
+            print("Added Salt and Pepper. Time to process: {}".format(time_sp_diff))
 
         # Shift the image in some way
         if self.augmentations.translate_h:

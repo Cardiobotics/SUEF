@@ -1,0 +1,5 @@
+# @package data
+
+name: 2-Stream-mixed
+label: 2-Stream-mixed
+allowed_views: [99]
