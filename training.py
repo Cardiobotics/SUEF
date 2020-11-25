@@ -81,7 +81,7 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
 
         end_time_t = time.time()
         # Training
-        '''
+
         model.train()
         for j, (inputs_t, targets_t, indexes_t, _) in enumerate(train_data_loader):
             # Update timer for data retrieval
@@ -151,7 +151,6 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
               'Training Loss: {loss.avg:.4f} \t '
               'Training R2 score: {r2.avg:.3f} \t'
               .format(i+1, batch_time=batch_time_t, data_time=data_time_t, loss=losses_t, r2=r2_values_t))
-        '''
 
         # Validation
 
