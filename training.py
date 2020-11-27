@@ -213,21 +213,21 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
             pd_val_data = pd.DataFrame(val_data, columns=['us_id', 'output', 'target', 'loss'])
             pd_val_data[['output', 'target', 'loss']] = pd_val_data[['output', 'target', 'loss']].astype(np.float32)
             val_ue = pd_val_data.drop_duplicates(subset='us_id')[['us_id', 'target']]
-            all_mean_output = []
             all_mean_loss = []
-            all_unique_targets = []
             for ue in val_ue.itertuples():
                 exam_results = pd_val_data[pd_val_data['us_id'] == ue.us_id]
-                mean_exam_output = exam_results['output'].mean()
-                all_mean_output.append(mean_exam_output)
+                num_combinations = len(exam_results)
+                weight = 1/num_combinations
                 mean_exam_loss = exam_results['loss'].mean()
                 all_mean_loss.append(mean_exam_loss)
-                all_unique_targets.append(ue.target)
+                for i in exam_results.index:
+                    pd_val_data.loc[i, 'r2_weight'] = weight
             np_loss = np.array(all_mean_loss, dtype=np.float32)
             v_loss_mean = np_loss.mean()
-            outputs = np.array(all_mean_output, dtype=np.float32)
-            targets = np.array(all_unique_targets, dtype=np.float32)
-            v_r2 = r2_score(targets, outputs)
+            targets = pd_val_data['target'].to_numpy()
+            outputs = pd_val_data['output'].to_numpy()
+            weights = pd_val_data['r2_weight'].to_numpy()
+            v_r2 = r2_score(targets, outputs, sample_weight=weights)
         else:
             v_loss_mean = losses_v.avg
             v_r2 = r2_values_v.avg
