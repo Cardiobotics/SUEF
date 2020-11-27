@@ -5,7 +5,6 @@ from training import train_and_validate
 import neptune
 import hydra
 from data.npy_dataset import NPYDataset
-from data.two_stream_dataset import TwoStreamDataset
 from data.multi_stream_dataset import MultiStreamDataset
 from omegaconf import DictConfig
 import logging
@@ -20,7 +19,7 @@ logging.getLogger('numexpr').setLevel(logging.WARNING)
 def main(cfg: DictConfig) -> None:
 
     assert cfg.model.name in ['ccnn', 'resnext', 'i3d', 'i3d_bert', 'i3d_bert_2stream']
-    assert cfg.data.type in ['img', 'flow', 'two-stream', 'ten-stream', 'eight-stream', 'multi-stream']
+    assert cfg.data.type in ['img', 'flow', 'multi-stream']
 
     tags = []
 
@@ -70,6 +69,22 @@ def main(cfg: DictConfig) -> None:
                 model = i3d_bert.flow_I3D64f_bert2_FRMB('', cfg.model.length, cfg.model.n_classes,
                                                         cfg.model.n_input_channels, cfg.model.pre_n_classes,
                                                         cfg.model.pre_n_input_channels)
+            if cfg.data.type == 'multi-stream':
+                tags.append('multi-stream')
+                tags.append('TVL1')
+                if cfg.model.shared_weights:
+                    tags.append('shared-weights')
+                    model_img, model_flow = create_two_stream_models(cfg, '', '')
+                    model = multi_stream.MultiStreamShared(model_img, model_flow, len(cfg.data.allowed_views)*2)
+                else:
+                    model_dict = {}
+                    for view in cfg.data.allowed_views:
+                        m_img_name = 'model_img_' + str(view)
+                        m_flow_name = 'model_flow_' + str(view)
+                        model_img, model_flow = create_two_stream_models(cfg, '', '')
+                        model_dict[m_img_name] = model_img
+                        model_dict[m_flow_name] = model_flow
+                    model = multi_stream.MultiStream(model_dict)
             state_dict = torch.load(cfg.model.best_model)['model']
             model.load_state_dict(state_dict)
         else:
@@ -84,17 +99,13 @@ def main(cfg: DictConfig) -> None:
                 model = i3d_bert.flow_I3D64f_bert2_FRMB(cfg.model.pre_trained_checkpoint, cfg.model.length,
                                                         cfg.model.n_classes, cfg.model.n_input_channels,
                                                         cfg.model.pre_n_classes, cfg.model.pre_n_input_channels)
-            if cfg.data.type == 'two-stream':
-                tags.append('2-stream')
-                tags.append('TVL1')
-                model = two_stream.TwoStreamEnsemble(create_two_stream_models(cfg, cfg.model.pre_trained_checkpoint_img,
-                                                                              cfg.model.pre_trained_checkpoint_flow))
             if cfg.data.type == 'multi-stream':
                 tags.append('multi-stream')
                 tags.append('TVL1')
                 if cfg.model.shared_weights:
                     tags.append('shared-weights')
-                    model_img, model_flow = create_two_stream_models(cfg, cfg.model.pre_trained_checkpoint_img, cfg.model.pre_trained_checkpoint_flow)
+                    model_img, model_flow = create_two_stream_models(cfg, cfg.model.pre_trained_checkpoint_img,
+                                                                     cfg.model.pre_trained_checkpoint_flow)
                     model = multi_stream.MultiStreamShared(model_img, model_flow, len(cfg.data.allowed_views)*2)
                 else:
                     model_dict = {}

@@ -12,10 +12,12 @@ import time
 class MultiStreamDataset(torch.utils.data.Dataset):
     def __init__(self, cfg_data, cfg_transforms, cfg_augmentations, target_file, is_eval_set):
         super(MultiStreamDataset).__init__()
+        assert not (cfg_data.data_in_mem and cfg_data.preprocessed_data_on_disk)
 
         self.is_eval_set = is_eval_set
         self.allowed_views = cfg_data.allowed_views
         self.data_in_mem = cfg_data.data_in_mem
+        self.preprocessed_data_on_disk = cfg_data.preprocessed_data_on_disk
         self.targets = pd.read_csv(os.path.abspath(target_file), sep=cfg_data.file_sep)
         if cfg_transforms.scale_output:
             self.targets['target'] = self.targets['target'].apply(lambda x: x / 100)
@@ -30,6 +32,13 @@ class MultiStreamDataset(torch.utils.data.Dataset):
             self.targets_combinations = self.generate_all_combinations()
         if self.data_in_mem:
             self.load_data_into_mem()
+        if self.preprocessed_data_on_disk:
+            self.temp_folder_img = cfg_data.temp_folder_img
+            self.temp_folder_flow = cfg_data.temp_folder_flow
+            self.load_data_to_disk()
+            self.base_folder_img = self.temp_folder_img
+            self.base_folder_flow = self.temp_folder_flow
+
 
     def __len__(self):
         if self.is_eval_set:
@@ -128,6 +137,31 @@ class MultiStreamDataset(torch.utils.data.Dataset):
             data_list.append(r)
         self.data_frame = pd.DataFrame(data_list, columns=['img', 'flow', 'target', 'us_id', 'iid', 'view'])
         print('All data loaded into memory')
+
+    def load_data_to_disk(self):
+        nprocs = np.cpu_count()
+        print(f"Number of CPU cores: {nprocs}")
+        pool = mp.Pool(processes=nprocs)
+        iterator = self.targets.itertuples(index=False, name=None)
+        pool.map(self.write_data_to_disk, iterator)
+        pool.close()
+        pool.join()
+        print('All data processed and loaded to disk')
+
+    def write_data_to_disk(self, data):
+        uid, _, _, _, _, file_img, file_flow, target
+        img, flow, _, _, _, _ = read_image_data(data)
+        folder_img = os.path.join(self.temp_folder_img, uid)
+        if not os.path.exists(folder_img):
+            os.makedirs(folder_img)
+        fp_img = os.path.join(folder_img, file_img)
+        folder_flow = os.path.join(self.temp_folder_flow, uid)
+        if not os.path.exists(folder_flow):
+            os.makedirs(folder_flow)
+        fp_flow = os.path.join(folder_flow, file_flow)
+        np.save(fp_img, img)
+        np.save(fp_flow, flow)
+        return 0
 
     def read_image_data(self, data):
         uid, iid, view, fps, hr, file_img, file_flow, target = data

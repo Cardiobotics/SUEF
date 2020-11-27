@@ -4,15 +4,16 @@ defaults:
   - model_type: ${defaults.1.model}_${defaults.0.data_type}
   - transforms: ${defaults.0.data_type}
   - augmentations: ${defaults.0.data_type}
-  - data_set: 8stream
+  - data_set: 2stream_mixed
 
 data:
   data_in_mem: False
+  only_use_complete_exams: False
   file_sep: ;
   base_target_folder: /media/ola/324ac400-018f-4d6b-941e-361b54f3e5f6/targets
   data_folder: ${data.base_data_folder}/${data.type}/
-  train_targets: ${data.base_target_folder}/train_data.csv
-  val_targets: ${data.base_target_folder}/val_data.csv
+  train_targets: ${data.base_target_folder}/train_data_mixed.csv
+  val_targets: ${data.base_target_folder}/test.csv
   test_targets: ${data.base_target_folder}/test_data.csv
 
 logging:
@@ -37,8 +38,8 @@ data_loader:
   weighted_sampler: True
 
 optimizer:
-  learning_rate: 0.01
-  weight_decay: 0.001
+  learning_rate: 0.001
+  weight_decay: 0.0001
   use_scheduler: True
   s_patience: 35
   s_factor: 0.1
@@ -51,4 +52,4 @@ training:
   freeze_lower: False
 
 evaluation:
-  use_best_sample: False
+  use_best_sample: True
