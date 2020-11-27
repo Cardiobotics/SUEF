@@ -18,7 +18,7 @@ class DataAugmentations:
         
         self.transforms = transforms
         self.augmentations = augmentations
-        self.debug = False
+        self.debug = True
 
         if self.transforms.normalize_input:
             self.black_val = -1.0
@@ -60,16 +60,36 @@ class DataAugmentations:
         # Shift the image in some way
         if self.augmentations.translate_h:
             img = self.t_translate_h(img)
+        if self.debug:
+            time_th = time.time()
+            time_th_diff = time_th - time_sp
+            print("Translated horizontal. Time to process: {}".format(time_th_diff))
         if self.augmentations.translate_v:
             img = self.t_translate_v(img)
+        if self.debug:
+            time_tv = time.time()
+            time_tv_diff = time_tv - time_th
+            print("Translated vertical. Time to process: {}".format(time_tv_diff))
         if self.augmentations.rotate:
             img = self.t_rotate(img)
+        if self.debug:
+            time_rot = time.time()
+            time_rot_diff = time_rot - time_tv
+            print("Rotated frames. Time to process: {}".format(time_rot_diff))
 
         # Local changes
         if self.augmentations.local_blackout:
             img = self.t_local_blackout(img)
+        if self.debug:
+            time_lb = time.time()
+            time_lb_diff = time_lb - time_rot
+            print("Added local blackout. Time to process: {}".format(time_lb_diff))
         if self.augmentations.local_intensity:
             img = self.t_local_intensity(img)
+        if self.debug:
+            time_li = time.time()
+            time_li_diff = time_li - time_lb
+            print("Added local intensity. Time to process: {}".format(time_li_diff))
 
         return img.astype(np.float32)
 

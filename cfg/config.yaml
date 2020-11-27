@@ -9,7 +9,7 @@ defaults:
 data:
   data_in_mem: False
   only_use_complete_exams: False
-  preprocessed_data_on_disk: True
+  preprocessed_data_on_disk: False
   temp_folder_img: /media/ola/324ac400-018f-4d6b-941e-361b54f3e5f6/temp/img
   temp_folder_flow: /media/ola/324ac400-018f-4d6b-941e-361b54f3e5f6/temp/flow
   file_sep: ;
@@ -20,7 +20,7 @@ data:
   test_targets: ${data.base_target_folder}/test_data.csv
 
 logging:
-  logging_enabled: True
+  logging_enabled: False
   project_name: 'eiphodos/SUEF'
   experiment_name: ${model.name}
 
@@ -35,7 +35,7 @@ performance:
 data_loader:
   batch_size_train: 16
   batch_size_eval: 16
-  n_workers: 10
+  n_workers: 1
   custom_collate: False
   drop_last: True
   weighted_sampler: True

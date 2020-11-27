@@ -35,9 +35,13 @@ class MultiStreamDataset(torch.utils.data.Dataset):
         if self.preprocessed_data_on_disk:
             self.temp_folder_img = cfg_data.temp_folder_img
             self.temp_folder_flow = cfg_data.temp_folder_flow
+            # Turn of the flag to enable transforms while saving to disk
+            self.preprocessed_data_on_disk = False
             self.load_data_to_disk()
             self.base_folder_img = self.temp_folder_img
             self.base_folder_flow = self.temp_folder_flow
+            # Enable it again so that transforms are disabled when reading from dataset.
+            self.preprocessed_data_on_disk = True
 
 
     def __len__(self):
@@ -172,15 +176,15 @@ class MultiStreamDataset(torch.utils.data.Dataset):
                 raise ValueError("Target is None")
             # Process img
             img = np.load(fp_img, allow_pickle=True)
-            img = self.data_aug_img.transform_size(img, fps, hr)
             if img is None:
                 raise ValueError("Img is None")
-
             # Process flow
             flow = np.load(fp_flow, allow_pickle=True)
-            flow = self.data_aug_flow.transform_size(flow, fps, hr)
             if flow is None:
                 raise ValueError("Flow is None")
+            if not self.preprocessed_data_on_disk:
+                img = self.data_aug_img.transform_size(img, fps, hr)
+                flow = self.data_aug_flow.transform_size(flow, fps, hr)
             return img, flow, target, uid, iid, view
         except Exception as e:
             print("Failed to get item for img file: {} and flow file: {} with exception: {}".format(file_img, file_flow, e))

@@ -14,8 +14,8 @@ train_t:
   crop_length: True
   pad_size: False
   loop_length: True
-  target_height: 48
-  target_width: 64
+  target_height: 484
+  target_width: 636
   target_length: 10
   target_fps: 10
   target_fphb: 10
@@ -31,8 +31,8 @@ eval_t:
   crop_length: True
   pad_size: False
   loop_length: True
-  target_height: 48
-  target_width: 64
+  target_height: 484
+  target_width: 636
   target_length: 10
   target_fps: 10
   target_fphb: 10
