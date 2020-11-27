@@ -220,8 +220,8 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                 weight = 1/num_combinations
                 mean_exam_loss = exam_results['loss'].mean()
                 all_mean_loss.append(mean_exam_loss)
-                for i in exam_results.index:
-                    pd_val_data.loc[i, 'r2_weight'] = weight
+                for indx in exam_results.index:
+                    pd_val_data.loc[indx, 'r2_weight'] = weight
             np_loss = np.array(all_mean_loss, dtype=np.float32)
             v_loss_mean = np_loss.mean()
             targets = pd_val_data['target'].to_numpy()
