@@ -9,6 +9,9 @@ defaults:
 data:
   data_in_mem: False
   only_use_complete_exams: False
+  preprocessed_data_on_disk: True
+  temp_folder_img: /media/ola/324ac400-018f-4d6b-941e-361b54f3e5f6/temp/img
+  temp_folder_flow: /media/ola/324ac400-018f-4d6b-941e-361b54f3e5f6/temp/flow
   file_sep: ;
   base_target_folder: /media/ola/324ac400-018f-4d6b-941e-361b54f3e5f6/targets
   data_folder: ${data.base_data_folder}/${data.type}/
