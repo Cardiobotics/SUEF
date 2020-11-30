@@ -159,7 +159,7 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
               .format(i+1, batch_time=batch_time_t, data_time=data_time_t, loss=losses_t, r2=r2_values_t))
 
         if cfg.logging.logging_enabled:
-            log_metrics(experiment, losses_t.avg, r2_values_t.avg)
+            log_train_metrics(experiment, losses_t.avg, r2_values_t.avg)
 
         # Validation
 
@@ -253,7 +253,7 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
             print('Example targets: {} \n Example outputs: {}'.format(torch.squeeze(targets_v), torch.squeeze(outputs_v)))
 
             if cfg.logging.logging_enabled:
-                log_metrics(experiment, v_loss_mean, v_r2, max_val_r2)
+                log_val_metrics(experiment, v_loss_mean, v_r2, max_val_r2)
 
         if use_scheduler:
             scheduler.step(v_loss_mean)
@@ -277,9 +277,12 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
         print('Epoch {} completed. Time to complete: {}. Estimated remaining time: {}'.format(i+1, epoch_time, format_time(rem_time)))
 
 
-def log_metrics(experiment, t_loss, t_r2, v_loss, v_r2, best_v_r2):
+def log_train_metrics(experiment, t_loss, t_r2):
     experiment.log_metric('training_loss', t_loss)
     experiment.log_metric('training_r2', t_r2)
+
+
+def log_val_metrics(experiment, v_loss, v_r2, best_v_r2):
     experiment.log_metric('validation_loss', v_loss)
     experiment.log_metric('validation_r2', v_r2)
     experiment.log_metric('best_val_r2', best_v_r2)
