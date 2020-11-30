@@ -58,6 +58,7 @@ def main(cfg: DictConfig) -> None:
         tags.append('I3D')
         tags.append('BERT')
         if cfg.training.continue_training:
+            state_dict = torch.load(cfg.model.best_model)['model']
             if cfg.data.type == 'img':
                 tags.append('spatial')
                 model = i3d_bert.rgb_I3D64f_bert2_FRMB('', cfg.model.length, cfg.model.n_classes,
@@ -75,7 +76,7 @@ def main(cfg: DictConfig) -> None:
                 if cfg.model.shared_weights:
                     tags.append('shared-weights')
                     model_img, model_flow = create_two_stream_models(cfg, '', '')
-                    model = multi_stream.MultiStreamShared(model_img, model_flow, len(cfg.data.allowed_views)*2)
+                    model = multi_stream.MultiStreamShared(model_img, model_flow, len(state_dict['fc_linear.weight'][0]))
                 else:
                     model_dict = {}
                     for view in cfg.data.allowed_views:
@@ -85,7 +86,8 @@ def main(cfg: DictConfig) -> None:
                         model_dict[m_img_name] = model_img
                         model_dict[m_flow_name] = model_flow
                     model = multi_stream.MultiStream(model_dict)
-            state_dict = torch.load(cfg.model.best_model)['model']
+                if not len(state_dict['fc_linear.weight'][0]) == len(cfg.data.allowed_views)*2:
+                    model.replace_fc(len(cfg.data.allowed_views)*2)
             model.load_state_dict(state_dict)
         else:
             if cfg.data.type == 'img':

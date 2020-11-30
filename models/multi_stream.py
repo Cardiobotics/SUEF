@@ -73,3 +73,9 @@ class MultiStreamShared(nn.Module):
         y = torch.stack(y, dim=1).squeeze()
         y = self._modules[self.fc_name](F.relu(y))
         return y
+
+    def replace_fc(self, num_models):
+        self.num_models = num_models
+        self.fc_name = 'Linear_layer'
+        self.fc_linear = nn.Linear(self.num_models, 1)
+        self.add_module(self.fc_name, self.fc_linear)
