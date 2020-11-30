@@ -158,94 +158,102 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
               'Training R2 score: {r2.avg:.3f} \t'
               .format(i+1, batch_time=batch_time_t, data_time=data_time_t, loss=losses_t, r2=r2_values_t))
 
+        if cfg.logging.logging_enabled:
+            log_metrics(experiment, losses_t.avg, r2_values_t.avg)
+
         # Validation
 
-        end_time_v = time.time()
-        model.eval()
-        all_out_v = np.zeros((0))
-        all_target_v = np.zeros((0))
-        all_uids_v = np.zeros((0))
-        all_loss_v = np.zeros((0))
-        for k, (inputs_v, targets_v, _, uids_v) in enumerate(val_data_loader):
-            # Update timer for data retrieval
-            data_time_v.update(time.time() - end_time_v)
-
-            # Move input to CUDA if available
-            if cuda_available:
-                if len(inputs_v) > 1:
-                    for p, inp in enumerate(inputs_v):
-                        inputs_v[p] = inp.to(device, non_blocking=True)
-                else:
-                    inputs_v = inputs_v.to(device, non_blocking=True)
-                targets_v = targets_v.to(device, non_blocking=True)
-            with torch.no_grad():
-                # Get model validation output and validation loss
-                with autocast(enabled=use_half_prec):
-                    outputs_v = model(inputs_v)
-                    loss_v = criterion(outputs_v, targets_v)
-                    loss_mean_v = loss_v.mean()
-
-            # Update timer for batch
-            batch_time_v.update(time.time() - end_time_v)
-
-            # Update metrics
-            if cfg.evaluation.use_best_sample:
-                all_out_v = np.concatenate((all_out_v, outputs_v.squeeze(axis=1).cpu().detach().numpy()))
-                all_target_v = np.concatenate((all_target_v, targets_v.squeeze(axis=1).cpu().detach().numpy()))
-                all_uids_v = np.concatenate((all_uids_v, uids_v))
-                all_loss_v = np.concatenate((all_loss_v, loss_v.cpu().squeeze(axis=1).detach().numpy()))
-            else:
-                r2_targets_v = targets_v.cpu().detach().numpy()
-                r2_outputs_v = outputs_v.cpu().detach()
-                r2_v = r2_score(r2_targets_v, r2_outputs_v)
-                r2_values_v.update(r2_v)
-                losses_v.update(loss_mean_v)
-
-                if k % 100 == 0:
-                    print('Validation Batch: [{}/{}] in epoch: {} \t '
-                          'Validation Time: {batch_time.val:.3f} ({batch_time.avg:.3f}) \t '
-                          'Validation Data Time: {data_time.val:.3f} ({data_time.avg:.3f}) \t '
-                          'Validation Loss: {loss.val:.4f} ({loss.avg:.4f}) \t '
-                          'Validation R2 Score: {r2.val:.3f} ({r2.avg:.3f}) \t'
-                          .format(k + 1, len(val_data_loader), i + 1, batch_time=batch_time_v, data_time=data_time_v,
-                                  loss=losses_v, r2=r2_values_v))
-
+        # Only run validation every 10 epochs to save training time
+        if i % 10 == 0:
             end_time_v = time.time()
+            model.eval()
+            all_out_v = np.zeros((0))
+            all_target_v = np.zeros((0))
+            all_uids_v = np.zeros((0))
+            all_loss_v = np.zeros((0))
+            for k, (inputs_v, targets_v, _, uids_v) in enumerate(val_data_loader):
+                # Update timer for data retrieval
+                data_time_v.update(time.time() - end_time_v)
 
-        if cfg.evaluation.use_best_sample:
-            # Only use validation results from examination with the lowest loss
-            val_data = np.array((all_uids_v, all_out_v, all_target_v, all_loss_v))
-            val_data = val_data.transpose(1, 0)
-            pd_val_data = pd.DataFrame(val_data, columns=['us_id', 'output', 'target', 'loss'])
-            pd_val_data[['output', 'target', 'loss']] = pd_val_data[['output', 'target', 'loss']].astype(np.float32)
-            val_ue = pd_val_data.drop_duplicates(subset='us_id')[['us_id', 'target']]
-            all_mean_loss = []
-            for ue in val_ue.itertuples():
-                exam_results = pd_val_data[pd_val_data['us_id'] == ue.us_id]
-                num_combinations = len(exam_results)
-                weight = 1/num_combinations
-                mean_exam_loss = exam_results['loss'].mean()
-                all_mean_loss.append(mean_exam_loss)
-                for indx in exam_results.index:
-                    pd_val_data.loc[indx, 'r2_weight'] = weight
-            np_loss = np.array(all_mean_loss, dtype=np.float32)
-            v_loss_mean = np_loss.mean()
-            targets = pd_val_data['target'].to_numpy()
-            outputs = pd_val_data['output'].to_numpy()
-            weights = pd_val_data['r2_weight'].to_numpy()
-            v_r2 = r2_score(targets, outputs, sample_weight=weights)
-        else:
-            v_loss_mean = losses_v.avg
-            v_r2 = r2_values_v.avg
+                # Move input to CUDA if available
+                if cuda_available:
+                    if len(inputs_v) > 1:
+                        for p, inp in enumerate(inputs_v):
+                            inputs_v[p] = inp.to(device, non_blocking=True)
+                    else:
+                        inputs_v = inputs_v.to(device, non_blocking=True)
+                    targets_v = targets_v.to(device, non_blocking=True)
+                with torch.no_grad():
+                    # Get model validation output and validation loss
+                    with autocast(enabled=use_half_prec):
+                        outputs_v = model(inputs_v)
+                        loss_v = criterion(outputs_v, targets_v)
+                        loss_mean_v = loss_v.mean()
 
-        # End of validation epoch prints and updates
-        print('Finished Validation Epoch: {} \t '
-              'Validation Time: {batch_time.avg:.3f} \t '
-              'Validation Data Time: {data_time.avg:.3f} \t '
-              'Validation Loss: {loss:.4f} \t '
-              'Validation R2 score: {r2:.3f} \t'
-              .format(i+1, batch_time=batch_time_v, data_time=data_time_v, loss=v_loss_mean, r2=v_r2))
-        print('Example targets: {} \n Example outputs: {}'.format(torch.squeeze(targets_v), torch.squeeze(outputs_v)))
+                # Update timer for batch
+                batch_time_v.update(time.time() - end_time_v)
+
+                # Update metrics
+                if cfg.evaluation.use_best_sample:
+                    all_out_v = np.concatenate((all_out_v, outputs_v.squeeze(axis=1).cpu().detach().numpy()))
+                    all_target_v = np.concatenate((all_target_v, targets_v.squeeze(axis=1).cpu().detach().numpy()))
+                    all_uids_v = np.concatenate((all_uids_v, uids_v))
+                    all_loss_v = np.concatenate((all_loss_v, loss_v.cpu().squeeze(axis=1).detach().numpy()))
+                else:
+                    r2_targets_v = targets_v.cpu().detach().numpy()
+                    r2_outputs_v = outputs_v.cpu().detach()
+                    r2_v = r2_score(r2_targets_v, r2_outputs_v)
+                    r2_values_v.update(r2_v)
+                    losses_v.update(loss_mean_v)
+
+                    if k % 100 == 0:
+                        print('Validation Batch: [{}/{}] in epoch: {} \t '
+                              'Validation Time: {batch_time.val:.3f} ({batch_time.avg:.3f}) \t '
+                              'Validation Data Time: {data_time.val:.3f} ({data_time.avg:.3f}) \t '
+                              'Validation Loss: {loss.val:.4f} ({loss.avg:.4f}) \t '
+                              'Validation R2 Score: {r2.val:.3f} ({r2.avg:.3f}) \t'
+                              .format(k + 1, len(val_data_loader), i + 1, batch_time=batch_time_v, data_time=data_time_v,
+                                      loss=losses_v, r2=r2_values_v))
+
+                end_time_v = time.time()
+
+            if cfg.evaluation.use_best_sample:
+                # Only use validation results from examination with the lowest loss
+                val_data = np.array((all_uids_v, all_out_v, all_target_v, all_loss_v))
+                val_data = val_data.transpose(1, 0)
+                pd_val_data = pd.DataFrame(val_data, columns=['us_id', 'output', 'target', 'loss'])
+                pd_val_data[['output', 'target', 'loss']] = pd_val_data[['output', 'target', 'loss']].astype(np.float32)
+                val_ue = pd_val_data.drop_duplicates(subset='us_id')[['us_id', 'target']]
+                all_mean_loss = []
+                for ue in val_ue.itertuples():
+                    exam_results = pd_val_data[pd_val_data['us_id'] == ue.us_id]
+                    num_combinations = len(exam_results)
+                    weight = 1/num_combinations
+                    mean_exam_loss = exam_results['loss'].mean()
+                    all_mean_loss.append(mean_exam_loss)
+                    for indx in exam_results.index:
+                        pd_val_data.loc[indx, 'r2_weight'] = weight
+                np_loss = np.array(all_mean_loss, dtype=np.float32)
+                v_loss_mean = np_loss.mean()
+                targets = pd_val_data['target'].to_numpy()
+                outputs = pd_val_data['output'].to_numpy()
+                weights = pd_val_data['r2_weight'].to_numpy()
+                v_r2 = r2_score(targets, outputs, sample_weight=weights)
+            else:
+                v_loss_mean = losses_v.avg
+                v_r2 = r2_values_v.avg
+
+            # End of validation epoch prints and updates
+            print('Finished Validation Epoch: {} \t '
+                  'Validation Time: {batch_time.avg:.3f} \t '
+                  'Validation Data Time: {data_time.avg:.3f} \t '
+                  'Validation Loss: {loss:.4f} \t '
+                  'Validation R2 score: {r2:.3f} \t'
+                  .format(i+1, batch_time=batch_time_v, data_time=data_time_v, loss=v_loss_mean, r2=v_r2))
+            print('Example targets: {} \n Example outputs: {}'.format(torch.squeeze(targets_v), torch.squeeze(outputs_v)))
+
+            if cfg.logging.logging_enabled:
+                log_metrics(experiment, v_loss_mean, v_r2, max_val_r2)
 
         if use_scheduler:
             scheduler.step(v_loss_mean)
@@ -262,9 +270,6 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                                   + cfg.data.name + '_test' + '.pth'
                 save_checkpoint(checkpoint_name, model, optimizer)
                 max_val_r2 = v_r2
-
-        if cfg.logging.logging_enabled:
-            log_metrics(experiment, losses_t.avg, r2_values_t.avg, v_loss_mean, v_r2, max_val_r2)
 
         epoch_time = time.time() - start_time_epoch
         rem_epochs = cfg.training.epochs - (i+1)

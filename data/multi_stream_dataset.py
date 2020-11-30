@@ -131,7 +131,7 @@ class MultiStreamDataset(torch.utils.data.Dataset):
     def load_data_into_mem(self):
         nprocs = mp.cpu_count()
         print(f"Number of CPU cores: {nprocs}")
-        pool = mp.Pool(processes=nprocs)
+        pool = mp.Pool(processes=nprocs-2)
         iterator = self.targets.itertuples(index=False, name=None)
         result = pool.map(self.read_image_data, iterator)
         pool.close()
@@ -145,7 +145,7 @@ class MultiStreamDataset(torch.utils.data.Dataset):
     def load_data_to_disk(self):
         nprocs = mp.cpu_count()
         print(f"Number of CPU cores: {nprocs}")
-        pool = mp.Pool(processes=nprocs)
+        pool = mp.Pool(processes=nprocs-2)
         iterator = self.targets.itertuples(index=False, name=None)
         pool.map(self.write_data_to_disk, iterator)
         pool.close()
