@@ -154,17 +154,20 @@ class MultiStreamDataset(torch.utils.data.Dataset):
 
     def write_data_to_disk(self, data):
         uid, _, _, _, _, file_img, file_flow, target = data
-        img, flow, _, _, _, _ = self.read_image_data(data)
         folder_img = os.path.join(self.temp_folder_img, uid)
+        fp_img = os.path.join(folder_img, file_img)
         if not os.path.exists(folder_img):
             os.makedirs(folder_img)
-        fp_img = os.path.join(folder_img, file_img)
         folder_flow = os.path.join(self.temp_folder_flow, uid)
+        fp_flow = os.path.join(folder_flow, file_flow)
         if not os.path.exists(folder_flow):
             os.makedirs(folder_flow)
-        fp_flow = os.path.join(folder_flow, file_flow)
-        np.save(fp_img, img)
-        np.save(fp_flow, flow)
+        if os.path.exists(fp_img) and os.path.exists(fp_flow):
+            return 0
+        else:
+            img, flow, _, _, _, _ = self.read_image_data(data)
+            np.save(fp_img, img)
+            np.save(fp_flow, flow)
         return 0
 
     def read_image_data(self, data):
