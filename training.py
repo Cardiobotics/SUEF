@@ -124,7 +124,7 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
 
             # Update metrics
             try:
-                is_finite = torch.isfinite(r2_outputs_t).all()
+                is_finite = torch.isfinite(outputs_t).all()
                 if not is_finite:
                     raise ValueError('Output from model not finite')
                 r2_targets_t = targets_t.cpu().detach()
