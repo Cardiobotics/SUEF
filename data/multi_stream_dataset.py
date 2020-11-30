@@ -162,7 +162,7 @@ class MultiStreamDataset(torch.utils.data.Dataset):
         fp_flow = os.path.join(folder_flow, file_flow)
         if not os.path.exists(folder_flow):
             os.makedirs(folder_flow)
-        if os.path.exists(fp_img) and os.path.exists(fp_flow):
+        if (os.path.exists(fp_img) and (not os.path.getsize(fp_img) == 0)) and (os.path.exists(fp_flow) and (not os.path.getsize(fp_flow) == 0)) :
             return 0
         else:
             img, flow, _, _, _, _ = self.read_image_data(data)
