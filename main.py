@@ -86,9 +86,9 @@ def main(cfg: DictConfig) -> None:
                         model_dict[m_img_name] = model_img
                         model_dict[m_flow_name] = model_flow
                     model = multi_stream.MultiStream(model_dict)
-                if not len(state_dict['fc_linear.weight'][0]) == len(cfg.data.allowed_views)*2:
-                    model.replace_fc(len(cfg.data.allowed_views)*2)
             model.load_state_dict(state_dict)
+            if not len(state_dict['fc_linear.weight'][0]) == len(cfg.data.allowed_views) * 2:
+                model.replace_fc(len(cfg.data.allowed_views) * 2)
         else:
             if cfg.data.type == 'img':
                 tags.append('spatial')
