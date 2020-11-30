@@ -123,11 +123,17 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
             scaler.update()
 
             # Update metrics
-            r2_targets_t = targets_t.cpu().detach()
-            r2_outputs_t = outputs_t.cpu().detach()
-            r2_t = r2_score(r2_targets_t, r2_outputs_t)
-            r2_values_t.update(r2_t)
-            losses_t.update(loss_mean_t)
+            try:
+                is_finite = torch.isfinite(r2_outputs_t).all()
+                if not is_finite:
+                    raise ValueError('Output from model not finite')
+                r2_targets_t = targets_t.cpu().detach()
+                r2_outputs_t = outputs_t.cpu().detach()
+                r2_t = r2_score(r2_targets_t, r2_outputs_t)
+                r2_values_t.update(r2_t)
+                losses_t.update(loss_mean_t)
+            except ValueError as ve:
+                print('Failed to calculate R2 with error: {} and output: {}'.format(ve, r2_outputs_t))
 
             # Update timer for batch
             batch_time_t.update(time.time() - end_time_t)
