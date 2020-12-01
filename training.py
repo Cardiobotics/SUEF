@@ -30,6 +30,13 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
     # Set loss criterion
     criterion = nn.MSELoss(reduction='none')
 
+    if cfg.training.freeze_lower:
+        for p in model.parameters():
+            p.requires_grad = False
+        model.Linear_layer.weight.requires_grad = True
+        model.Linear_layer.bias.requires_grad = True
+
+
     # Set optimizer
     optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()),
                                  lr=cfg.optimizer.learning_rate, weight_decay=cfg.optimizer.weight_decay)

@@ -47,18 +47,16 @@ class MultiStreamShared(nn.Module):
         super(MultiStreamShared, self).__init__()
 
         self.model_img_name = 'Model_img'
-        self.model_img = model_img
-        self.add_module(self.model_img_name, self.model_img)
+        self.add_module(self.model_img_name, model_img)
 
         self.model_flow_name = 'Model_flow'
-        self.model_flow = model_flow
-        self.add_module(self.model_flow_name, self.model_flow)
+        self.add_module(self.model_flow_name, model_flow)
 
         self.num_models = num_m
 
-        self.fc_name = 'Linear_layer'
-        self.fc_linear = nn.Linear(self.num_models, 1)
-        self.add_module(self.fc_name, self.fc_linear)
+        fc_name = 'Linear_layer'
+        fc_linear = nn.Linear(self.num_models, 1)
+        self.add_module(fc_name, fc_linear)
 
     def forward(self, x):
         assert len(x) == self.num_models
@@ -77,5 +75,5 @@ class MultiStreamShared(nn.Module):
     def replace_fc(self, num_models):
         self.num_models = num_models
         self.fc_name = 'Linear_layer'
-        self.fc_linear = nn.Linear(self.num_models, 1)
-        self.add_module(self.fc_name, self.fc_linear)
+        fc_linear = nn.Linear(self.num_models, 1)
+        self.add_module(self.fc_name, fc_linear)
