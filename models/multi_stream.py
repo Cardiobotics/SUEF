@@ -54,9 +54,9 @@ class MultiStreamShared(nn.Module):
 
         self.num_models = num_m
 
-        fc_name = 'Linear_layer'
+        self.fc_name = 'Linear_layer'
         fc_linear = nn.Linear(self.num_models, 1)
-        self.add_module(fc_name, fc_linear)
+        self.add_module(self.fc_name, fc_linear)
 
     def forward(self, x):
         assert len(x) == self.num_models
