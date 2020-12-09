@@ -26,7 +26,7 @@ class rgb_I3D64f(nn.Module):
         self.dp = nn.Dropout(p=0.8)
         self.avgpool = nn.AvgPool3d((8, 7, 7), stride=1)
 
-        self.features = nn.Sequential(*list(_inception(model_path=modelPath).children())[3:])
+        self.features = nn.Sequential(*list(inception_model(model_path=modelPath).children())[3:])
 
         self.fc_action = nn.Linear(1024, num_classes)
         for param in self.features.parameters():
@@ -52,7 +52,7 @@ class flow_I3D64f(nn.Module):
         self.dp = nn.Dropout(p=0.7)
         self.avgpool = nn.AvgPool3d((8, 7, 7), stride=1)
 
-        self.features = nn.Sequential(*list(_inception_flow(model_path=modelPath).children())[3:])
+        self.features = nn.Sequential(*list(inception_model_flow(model_path=modelPath).children())[3:])
 
         self.fc_action = nn.Linear(1024, num_classes)
         for param in self.features.parameters():
@@ -107,7 +107,7 @@ class rgb_I3D64f_bert2(nn.Module):
         self.length = length
         self.dp = nn.Dropout(p=0.8)
 
-        self.features = nn.Sequential(*list(_inception(checkpoint, num_classes, num_channels).children())[3:])
+        self.features = nn.Sequential(*list(inception_model(checkpoint, num_classes, num_channels).children())[3:])
 
         for param in self.features.parameters():
             param.requires_grad = True
@@ -148,7 +148,7 @@ class flow_I3D64f_bert2(nn.Module):
         self.length = length
         self.dp = nn.Dropout(p=0.8)
 
-        self.features = nn.Sequential(*list(_inception_flow(checkpoint, num_classes, num_channels).children())[3:])
+        self.features = nn.Sequential(*list(inception_model_flow(checkpoint, num_classes, num_channels).children())[3:])
 
         for param in self.features.parameters():
             param.requires_grad = True
@@ -190,7 +190,7 @@ class rgb_I3D64f_bert2_FRMB(nn.Module):
         self.length = length
         self.dp = nn.Dropout(p=0.8)
 
-        self.features = nn.Sequential(*list(_inception(checkpoint, num_classes, num_channels, pre_n_classes, pre_n_channels).children())[3:])
+        self.features = nn.Sequential(*list(inception_model(checkpoint, num_classes, num_channels, pre_n_classes, pre_n_channels).children())[3:])
 
         for param in self.features.parameters():
             param.requires_grad = True
@@ -237,7 +237,7 @@ class flow_I3D64f_bert2_FRMB(nn.Module):
         self.length = length
         self.dp = nn.Dropout(p=0.8)
 
-        self.features = nn.Sequential(*list(_inception_flow(checkpoint, num_classes, num_channels, pre_n_classes, pre_n_channels).children())[3:])
+        self.features = nn.Sequential(*list(inception_model_flow(checkpoint, num_classes, num_channels, pre_n_classes, pre_n_channels).children())[3:])
 
         for param in self.features.parameters():
             param.requires_grad = True
@@ -284,7 +284,7 @@ class rgb_I3D64f_bert2_FRAB(nn.Module):
         self.length = length
         self.dp = nn.Dropout(p=0.8)
 
-        self.features = nn.Sequential(*list(_inception(checkpoint, num_classes, num_channels).children())[3:])
+        self.features = nn.Sequential(*list(inception_model(checkpoint, num_classes, num_channels).children())[3:])
 
         for param in self.features.parameters():
             param.requires_grad = True
@@ -330,7 +330,7 @@ class flow_I3D64f_bert2_FRAB(nn.Module):
         self.length = length
         self.dp = nn.Dropout(p=0.8)
 
-        self.features = nn.Sequential(*list(_inception_flow(checkpoint, num_classes, 2).children())[3:])
+        self.features = nn.Sequential(*list(inception_model_flow(checkpoint, num_classes, 2).children())[3:])
 
         for param in self.features.parameters():
             param.requires_grad = True
@@ -696,7 +696,7 @@ class InceptionI3d(nn.Module):
         return self.avg_pool(x)
 
 
-def _inception(checkpoint, n_classes, n_channels, pre_n_classes, pre_n_channels):
+def inception_model(checkpoint, n_classes, n_channels, pre_n_classes, pre_n_channels):
     model = InceptionI3d(pre_n_classes, in_channels=n_channels)
     if checkpoint == '':
         return model
@@ -711,7 +711,7 @@ def _inception(checkpoint, n_classes, n_channels, pre_n_classes, pre_n_channels)
     return model
 
 
-def _inception_flow(checkpoint, n_classes, n_channels, pre_n_classes, pre_n_channels):
+def inception_model_flow(checkpoint, n_classes, n_channels, pre_n_classes, pre_n_channels):
     model = InceptionI3d(pre_n_classes, in_channels=n_channels)
     if checkpoint == '':
         return model

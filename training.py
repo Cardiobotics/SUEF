@@ -259,9 +259,6 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                   .format(i+1, batch_time=batch_time_v, data_time=data_time_v, loss=v_loss_mean, r2=v_r2))
             print('Example targets: {} \n Example outputs: {}'.format(torch.squeeze(targets_v), torch.squeeze(outputs_v)))
 
-            if cfg.logging.logging_enabled:
-                log_val_metrics(experiment, v_loss_mean, v_r2, max_val_r2)
-
         if use_scheduler:
             scheduler.step(v_loss_mean)
 
@@ -277,6 +274,10 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                                   + cfg.data.name + '_test' + '.pth'
                 save_checkpoint(checkpoint_name, model, optimizer)
                 max_val_r2 = v_r2
+
+        if i % 10 == 0:
+            if cfg.logging.logging_enabled:
+                log_val_metrics(experiment, v_loss_mean, v_r2, max_val_r2)
 
         epoch_time = time.time() - start_time_epoch
         rem_epochs = cfg.training.epochs - (i+1)
@@ -313,3 +314,4 @@ def format_time(time_as_seconds):
     hours = s.tm_hour
     days = s.tm_yday - 1
     return '{} days, {} hours, {} minutes and {} seconds'.format(days, hours, minutes, seconds)
+
