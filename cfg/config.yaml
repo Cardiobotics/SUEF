@@ -4,23 +4,23 @@ defaults:
   - model_type: ${defaults.1.model}_${defaults.0.data_type}
   - transforms: ${defaults.0.data_type}
   - augmentations: ${defaults.0.data_type}
-  - data_set: 2stream_mixed
+  - data_set: 8stream
 
 data:
   data_in_mem: False
   only_use_complete_exams: False
-  preprocessed_data_on_disk: False
-  temp_folder_img: /media/ola/324ac400-018f-4d6b-941e-361b54f3e5f6/temp/img
-  temp_folder_flow: /media/ola/324ac400-018f-4d6b-941e-361b54f3e5f6/temp/flow
+  preprocessed_data_on_disk: True
+  temp_folder_img: /proj/suef_data/temp/img
+  temp_folder_flow: /proj/suef_data/temp/flow
   file_sep: ;
-  base_target_folder: /media/ola/324ac400-018f-4d6b-941e-361b54f3e5f6/targets
+  base_target_folder: /proj/suef_data/targets
   data_folder: ${data.base_data_folder}/${data.type}/
-  train_targets: ${data.base_target_folder}/train_data_mixed.csv
-  val_targets: ${data.base_target_folder}/test.csv
+  train_targets: ${data.base_target_folder}/train_data.csv
+  val_targets: ${data.base_target_folder}/val_data.csv
   test_targets: ${data.base_target_folder}/test_data.csv
 
 logging:
-  logging_enabled: False
+  logging_enabled: True
   project_name: 'eiphodos/SUEF'
   experiment_name: ${model.name}
 
@@ -35,7 +35,7 @@ performance:
 data_loader:
   batch_size_train: 16
   batch_size_eval: 16
-  n_workers: 1
+  n_workers: 20
   custom_collate: False
   drop_last: True
   weighted_sampler: True
@@ -44,14 +44,14 @@ optimizer:
   learning_rate: 0.001
   weight_decay: 0.0001
   use_scheduler: True
-  s_patience: 35
+  s_patience: 100
   s_factor: 0.1
 
 training:
-  epochs: 100
+  epochs: 1000
   checkpointing_enabled: True
-  continue_training: False
-  checkpoint_save_path: /home/ola/Projects/SUEF/saved_models/
+  continue_training: True
+  checkpoint_save_path: /proj/suef_data/saved_models/
   freeze_lower: False
 
 evaluation:
