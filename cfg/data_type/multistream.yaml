@@ -2,4 +2,4 @@
 
 type: multi-stream
 data_folder_img: /proj/suef_data/img
-data_folder_flow: /proj_suef_data/flow
+data_folder_flow: /proj/suef_data/flow
