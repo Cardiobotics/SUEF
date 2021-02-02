@@ -8,7 +8,6 @@ import torch.nn.functional as F
 class TwoStreamEnsemble(nn.Module):
     '''
     Ensemble for combining multiple models.
-    If the models are already trained, all layers except the last fc_linear must be frozen.
     '''
 
     def __init__(self, model_img, model_flow):
