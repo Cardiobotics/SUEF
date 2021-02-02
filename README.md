@@ -7,4 +7,5 @@ Usage:
 
 Run main.py
 Set default config using the yaml files in the cfg folder.
-Temporary changes can be added from command line, for example: "python main.py performance.parallel_model=False augmentations.train_a.gaussian_noise=True".
+Temporary changes can be added from command line. 
+For example: "python main.py performance.parallel_model=False augmentations.train_a.gaussian_noise=True".
