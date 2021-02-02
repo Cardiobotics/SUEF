@@ -3,5 +3,5 @@
 name: i3d_bert
 
 n_classes: 1
-pre_n_classes: 400
+pre_n_classes: 1
 length: 10

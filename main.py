@@ -1,6 +1,6 @@
 import torch
 from torch.utils.data import DataLoader, WeightedRandomSampler, RandomSampler
-from models import custom_cnn, resnext, i3d, i3d_bert, two_stream, multi_stream
+from models import custom_cnn, resnext, i3d_bert, multi_stream
 from training import train_and_validate
 import neptune
 import hydra
@@ -38,22 +38,19 @@ def main(cfg: DictConfig) -> None:
         model.load_state_dict(torch.load(cfg.model.pre_trained_checkpoint))
     elif cfg.model.name == 'i3d':
         tags.append('I3D')
+        if cfg.training.continue_training:
+            checkpoint = cfg.model.best_model
+        else:
+            checkpoint = cfg.model.pre_trained_checkpoint
         if cfg.data.type == 'img':
             tags.append('spatial')
-            model = i3d.InceptionI3d(cfg.model.pre_n_classes, in_channels=cfg.model.n_input_channels)
-            state_dict = torch.load(cfg.model.pre_trained_checkpoint)
-            if not cfg.model.n_input_channels == cfg.model.pre_n_input_channels:
-                conv1_weights = state_dict['Conv3d_1a_7x7.conv3d.weight']
-                state_dict['Conv3d_1a_7x7.conv3d.weight'] = conv1_weights.mean(dim=1, keepdim=True)
-            model.load_state_dict(state_dict)
-            model.replace_logits(cfg.model.n_classes)
+            model = i3d_bert.inception_model(checkpoint, cfg.model.n_classes, cfg.model.n_input_channels,
+                                             cfg.model.pre_n_classes, cfg.model.pre_n_input_channels)
         elif cfg.data.type == 'flow':
             tags.append('temporal')
             tags.append('TVL1')
-            model = i3d.InceptionI3d(cfg.model.pre_n_classes, in_channels=cfg.model.n_input_channels)
-            state_dict = torch.load(cfg.model.pre_trained_checkpoint)
-            model.load_state_dict(state_dict)
-            model.replace_logits(cfg.model.n_classes)
+            model = i3d_bert.inception_model_flow(checkpoint, cfg.model.n_classes, cfg.model.n_input_channels,
+                                                  cfg.model.pre_n_classes, cfg.model.pre_n_input_channels)
     elif cfg.model.name == 'i3d_bert':
         tags.append('I3D')
         tags.append('BERT')
