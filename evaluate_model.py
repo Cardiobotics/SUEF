@@ -1,13 +1,14 @@
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
+from torch.cuda.amp import autocast
 from sklearn.metrics import r2_score
 import hydra
 from utils.utils import AverageMeter
 import os
-from models import i3d_bert
+from models import i3d_bert, multi_stream
 from omegaconf import DictConfig
-from data.npy_dataset import NPYDataset
+from data.multi_stream_dataset import MultiStreamDataset
 import numpy as np
 import pandas as pd
 
@@ -15,12 +16,15 @@ import pandas as pd
 @hydra.main(config_path="cfg", config_name="config")
 def main(cfg: DictConfig) -> None:
 
-    chkpt_path = '/home/ola/Projects/SUEF/saved_models/i3d_bert_img_Sax_exp_SUEF-116.pth'
-    data_path = cfg.data.data_folder
-    target_path = '/home/ola/Projects/SUEF/data/val_data.csv'
-    result_path = '/home/ola/Projects/SUEF/results/sax_img.csv'
+    target_path = cfg.data.val_targets
+    result_path = '/home/ola/Projects/SUEF/results/8-stream-results.csv'
 
-    model = i3d_bert.flow_I3D64f_bert2_FRMB('', cfg.model.length, cfg.model.n_classes,  cfg.model.n_input_channels, cfg.model.pre_n_classes, cfg.model.pre_n_input_channels)
+    state_dict = torch.load(cfg.model.best_model)['model']
+    model_img, model_flow = create_two_stream_models(cfg, '', '')
+    model = multi_stream.MultiStreamShared(model_img, model_flow, len(state_dict['Linear_layer.weight'][0]))
+    model.load_state_dict(state_dict)
+
+    use_half_prec = cfg.performance.half_precision
 
     # Set visible devices
     parallel_model = cfg.performance.parallel_mode
@@ -35,9 +39,6 @@ def main(cfg: DictConfig) -> None:
 
     model.to(device)
 
-    checkpoint = torch.load(chkpt_path)
-    model.load_state_dict(checkpoint['model'])
-
     if parallel_model:
         print("Available GPUS: {}".format(torch.cuda.device_count()))
         model = nn.DataParallel(model)
@@ -50,9 +51,9 @@ def main(cfg: DictConfig) -> None:
     # Set loss criterion
     criterion = nn.MSELoss()
 
-    test_data_set = NPYDataset(cfg.data, cfg.transforms.eval_t, cfg.augmentations.eval_a, cfg.data.val_targets)
+    val_d_set = MultiStreamDataset(cfg.data, cfg.transforms.eval_t, cfg.augmentations.eval_a, cfg.data.val_targets, is_eval_set=True)
 
-    test_data_loader = DataLoader(test_data_set, batch_size=cfg.data_loader.batch_size_eval,
+    val_data_loader = DataLoader(val_d_set, batch_size=cfg.data_loader.batch_size_eval,
                                  num_workers=cfg.data_loader.n_workers, drop_last=cfg.data_loader.drop_last)
 
     losses = AverageMeter()
@@ -62,30 +63,36 @@ def main(cfg: DictConfig) -> None:
     saved_uids = []
     saved_targets = []
 
-    for inputs, targets, _, uids in test_data_loader:
+    for inputs_v, targets_v, _, uids in val_data_loader:
 
         # Move input to CUDA if available
         if cuda_available:
-            targets = targets.to(device, non_blocking=True)
-            inputs = inputs.to(device, non_blocking=True)
+            if len(inputs_v) > 1:
+                for p, inp in enumerate(inputs_v):
+                    inputs_v[p] = inp.to(device, non_blocking=True)
+            else:
+                inputs_v = inputs_v.to(device, non_blocking=True)
+            targets_v = targets_v.to(device, non_blocking=True)
 
         with torch.no_grad():
-            outputs = model(inputs)
+            with autocast(enabled=use_half_prec):
+                outputs_v = model(inputs_v)
 
-        loss = criterion(outputs, targets)
+        loss_v = criterion(outputs_v, targets_v)
+        loss_mean_v = loss_v.mean()
 
         # Update metrics
-        r2_targets = targets.cpu().detach()
-        r2_outputs = outputs.cpu().detach()
+        r2_targets = targets_v.cpu().detach()
+        r2_outputs = outputs_v.cpu().detach()
 
         r2 = r2_score(r2_targets, r2_outputs)
 
         r2_scores.update(r2)
 
-        losses.update(loss)
+        losses.update(loss_mean_v)
 
-        saved_outputs.append(outputs.squeeze().cpu().numpy())
-        saved_targets.append(targets.squeeze().cpu().numpy())
+        saved_outputs.append(outputs_v.squeeze().cpu().numpy())
+        saved_targets.append(targets_v.squeeze().cpu().numpy())
         saved_uids.append(uids)
 
     saved_uids = np.array(saved_uids)
@@ -106,6 +113,17 @@ def main(cfg: DictConfig) -> None:
     print(pd_data)
     pd_data.to_csv(result_path, sep=';', index=False)
 
+def create_two_stream_models(cfg, checkpoint_img, checkpoint_flow):
+    model_img = i3d_bert.rgb_I3D64f_bert2_FRMB(checkpoint_img, cfg.model.length,
+                                               cfg.model.n_classes, cfg.model.n_input_channels_img,
+                                               cfg.model.pre_n_classes, cfg.model.pre_n_input_channels_img)
+    model_flow = i3d_bert.flow_I3D64f_bert2_FRMB(checkpoint_flow, cfg.model.length,
+                                                 cfg.model.n_classes, cfg.model.n_input_channels_flow,
+                                                 cfg.model.pre_n_classes, cfg.model.pre_n_input_channels_flow)
+    return model_img, model_flow
+
 if __name__ == "__main__":
     main()
+
+
 

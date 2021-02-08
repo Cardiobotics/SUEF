@@ -14,7 +14,6 @@ logging.basicConfig(level=logging.INFO)
 logging.getLogger('numexpr').setLevel(logging.WARNING)
 
 
-
 @hydra.main(config_path="cfg", config_name="config")
 def main(cfg: DictConfig) -> None:
 

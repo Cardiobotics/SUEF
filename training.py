@@ -5,6 +5,7 @@ from sklearn.metrics import r2_score
 import time
 from torch.cuda.amp import GradScaler
 from torch.cuda.amp import autocast
+from hinge_loss import HingeLossRegression
 import os
 import numpy as np
 import pandas as pd
@@ -27,19 +28,24 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
     # CUDNN Auto-tuner. Use True when input size and model is static
     torch.backends.cudnn.benchmark = cfg.performance.cuddn_auto_tuner
 
-    # Set loss criterion
-    criterion = nn.MSELoss(reduction='none')
-
     if cfg.training.freeze_lower:
         for p in model.parameters():
             p.requires_grad = False
         model.Linear_layer.weight.requires_grad = True
         model.Linear_layer.bias.requires_grad = True
 
-
-    # Set optimizer
-    optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()),
-                                 lr=cfg.optimizer.learning_rate, weight_decay=cfg.optimizer.weight_decay)
+    if cfg.optimizer.loss_function == 'hinge':
+        # Set loss criterion
+        criterion = HingeLossRegression(cfg.optimizer.loss_epsilon, reduction=None)
+        # Hinge loss is dependent on L2 regularization so we cannot use AdamW
+        optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()),
+                                     lr=cfg.optimizer.learning_rate, weight_decay=cfg.optimizer.weight_decay)
+    else:
+        # Set loss criterion
+        criterion = nn.MSELoss(reduction='none')
+        # Set optimizer
+        optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()),
+                                      lr=cfg.optimizer.learning_rate, weight_decay=cfg.optimizer.weight_decay)
     if parallel_model:
         print("Available GPUS: {}".format(torch.cuda.device_count()))
         model = nn.DataParallel(model)
@@ -140,7 +146,7 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                 r2_values_t.update(r2_t)
                 losses_t.update(loss_mean_t)
             except ValueError as ve:
-                print('Failed to calculate R2 with error: {} and output: {}'.format(ve, r2_outputs_t))
+                print('Failed to calculate R2 with error: {} and output: {}'.format(ve, outputs_t))
 
             # Update timer for batch
             batch_time_t.update(time.time() - end_time_t)
@@ -225,7 +231,8 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                 end_time_v = time.time()
 
             if cfg.evaluation.use_best_sample:
-                # Only use validation results from examination with the lowest loss
+                # As results are over all possible combinations of views in each examination
+                # each different combination needs to have a weight equal to its ratio.
                 val_data = np.array((all_uids_v, all_out_v, all_target_v, all_loss_v))
                 val_data = val_data.transpose(1, 0)
                 pd_val_data = pd.DataFrame(val_data, columns=['us_id', 'output', 'target', 'loss'])

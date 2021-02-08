@@ -42,6 +42,11 @@ class MultiStreamDataset(torch.utils.data.Dataset):
             self.base_folder_flow = self.temp_folder_flow
             # Enable it again so that transforms are disabled when reading from dataset.
             self.preprocessed_data_on_disk = True
+        #Data consistensy checks
+        if self.is_eval_set:
+            if self.targets_combinations['target'].isnull().any():
+                null_df = self.targets_combinations[self.targets_combinations['target'].isnull()]
+                raise ValueError('Null values in targets: {}'.format(null_df))
 
 
     def __len__(self):
@@ -54,7 +59,7 @@ class MultiStreamDataset(torch.utils.data.Dataset):
         data_list = []
         if self.is_eval_set:
             if self.data_in_mem:
-                df = self.target_combinations.iloc[index]
+                df = self.targets_combinations.iloc[index]
                 exam = df['us_id']
                 target = df['target']
                 for view in self.allowed_views:

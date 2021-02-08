@@ -13,25 +13,24 @@ class MultiStream(nn.Module):
     def __init__(self, model_dict):
         super(MultiStream, self).__init__()
 
-        self.endpoints = {}
+        self.endpoint_keys = []
 
         for model_name, model in model_dict.items():
-            self.endpoints[model_name] = model
+            self.endpoint_keys.append(model_name)
             self.add_module(model_name, model)
 
         self.num_models = len(model_dict.items())
 
         self.fc_name = 'Linear_layer'
-        self.fc_linear = nn.Linear(self.num_models, 1)
-        self.endpoints[self.fc_name] = self.fc_linear
-        self.add_module(self.fc_name, self.fc_linear)
+        fc_linear = nn.Linear(self.num_models, 1)
+        self.add_module(self.fc_name, fc_linear)
 
     def forward(self, x):
         assert len(x) == self.num_models
 
         y = []
 
-        for inp, model_name in zip(x, self.endpoints.keys()):
+        for inp, model_name in zip(x, self.endpoint_keys):
             y.append(self._modules[model_name](inp))
         y = torch.stack(y, dim=1).squeeze()
         y = self._modules[self.fc_name](F.relu(y))
