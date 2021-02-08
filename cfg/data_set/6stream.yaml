@@ -1,0 +1,5 @@
+# @package data
+
+name: 6-Stream
+label: 6-Stream
+allowed_views: [0, 2, 4]

@@ -40,7 +40,7 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
         # Hinge loss is dependent on L2 regularization so we cannot use AdamW
         optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()),
                                      lr=cfg.optimizer.learning_rate, weight_decay=cfg.optimizer.weight_decay)
-    else:
+    elif cfg.optimizer.loss_function == 'mse':
         # Set loss criterion
         criterion = nn.MSELoss(reduction='none')
         # Set optimizer
