@@ -14,11 +14,11 @@ train_t:
   crop_length: True
   pad_size: False
   loop_length: True
-  target_height: 484
-  target_width: 636
-  target_length: 10
-  target_fps: 10
-  target_fphb: 10
+  target_height: 97
+  target_width: 127
+  target_length: 15
+  target_fps: 14
+  target_fphb: 14
 
 eval_t:
   grayscale: False
@@ -31,8 +31,8 @@ eval_t:
   crop_length: True
   pad_size: False
   loop_length: True
-  target_height: 484
-  target_width: 636
-  target_length: 10
-  target_fps: 10
-  target_fphb: 10
+  target_height: 97
+  target_width: 127
+  target_length: 15
+  target_fps: 14
+  target_fphb: 14
