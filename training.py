@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from utils.utils import AverageMeter
-from sklearn.metrics import r2_score
+from sklearn.metrics import r2_score, accuracy_score
 import time
 from torch.cuda.amp import GradScaler
 from torch.cuda.amp import autocast
@@ -28,12 +28,20 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
     # CUDNN Auto-tuner. Use True when input size and model is static
     torch.backends.cudnn.benchmark = cfg.performance.cuddn_auto_tuner
 
+    if cfg.model.n_classes > 1:
+        metric_name = 'Accuracy'
+        goal_type = 'classification'
+    else:
+        metric_name = 'R2'
+        goal_type = 'regression'
+
     if cfg.training.freeze_lower:
         for p in model.parameters():
             p.requires_grad = False
         model.Linear_layer.weight.requires_grad = True
         model.Linear_layer.bias.requires_grad = True
 
+    # Create Criterion and Optimizer
     if cfg.optimizer.loss_function == 'hinge':
         # Set loss criterion
         criterion = HingeLossRegression(cfg.optimizer.loss_epsilon, reduction=None)
@@ -46,6 +54,21 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
         # Set optimizer
         optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()),
                                       lr=cfg.optimizer.learning_rate, weight_decay=cfg.optimizer.weight_decay)
+    elif cfg.optimizer.loss_function == 'cross-entropy':
+        # Get counts for each class
+        # Instantiate class counts to 1 instead of 0 to prevent division by zero in case data is missing
+        class_counts = np.array(cfg.model.n_classes*[1])
+        for i in train_data_loader.dataset.unique_exams['target'].value_counts().index:
+            class_counts[i] = train_data_loader.dataset.unique_exams['target'].value_counts().loc[i]
+        # Calculate the inverse normalized ratio for each class
+        weights = class_counts / class_counts.sum()
+        weights = 1 / weights
+        weights = weights / weights.sum()
+        weights = torch.FloatTensor(weights).cuda()
+        criterion = nn.CrossEntropyLoss(weight=weights, reduction='none')
+        optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()),
+                                      lr=cfg.optimizer.learning_rate, weight_decay=cfg.optimizer.weight_decay)
+
     if parallel_model:
         print("Available GPUS: {}".format(torch.cuda.device_count()))
         model = nn.DataParallel(model)
@@ -76,7 +99,7 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
 
     # Begin training
 
-    max_val_r2 = -10000
+    max_val_metric = -10000
 
     for i in range(cfg.training.epochs):
 
@@ -85,12 +108,12 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
         batch_time_t = AverageMeter()
         data_time_t = AverageMeter()
         losses_t = AverageMeter()
-        r2_values_t = AverageMeter()
+        metric_values_t = AverageMeter()
 
         batch_time_v = AverageMeter()
         data_time_v = AverageMeter()
         losses_v = AverageMeter()
-        r2_values_v = AverageMeter()
+        metric_values_v = AverageMeter()
 
         end_time_t = time.time()
         # Training
@@ -104,10 +127,18 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
             if cuda_available:
                 if len(inputs_t) > 1:
                     for p, inp in enumerate(inputs_t):
+                        if not torch.isfinite(inp).all():
+                            raise ValueError('Input from dataloader not finite')
                         inputs_t[p] = inp.to(device, non_blocking=True)
                 else:
+                    if not torch.isfinite(inputs_t).all():
+                        raise ValueError('Input from dataloader not finite')
                     inputs_t = inputs_t.to(device, non_blocking=True)
+                if goal_type == 'classification':
+                    targets_t = targets_t.long().squeeze()
                 targets_t = targets_t.to(device, non_blocking=True)
+
+
 
             # Do forward and backwards pass
 
@@ -135,18 +166,21 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
             scaler.step(optimizer)
             scaler.update()
 
-            # Update metrics
+            # Calculate and update metrics
             try:
-                is_finite = torch.isfinite(outputs_t).all()
-                if not is_finite:
+                if not torch.isfinite(outputs_t).all():
                     raise ValueError('Output from model not finite')
-                r2_targets_t = targets_t.cpu().detach()
-                r2_outputs_t = outputs_t.cpu().detach()
-                r2_t = r2_score(r2_targets_t, r2_outputs_t)
-                r2_values_t.update(r2_t)
+                metric_targets_t = targets_t.cpu().detach().numpy()
+                metric_outputs_t = outputs_t.cpu().detach().numpy()
+                if goal_type == 'regression':
+                    metric_t = r2_score(metric_targets_t, metric_outputs_t)
+                else:
+                    predictions_t = np.argmax(metric_outputs_t, 1)
+                    metric_t = accuracy_score(metric_targets_t, predictions_t)
+                metric_values_t.update(metric_t)
                 losses_t.update(loss_mean_t)
             except ValueError as ve:
-                print('Failed to calculate R2 with error: {} and output: {}'.format(ve, outputs_t))
+                print('Failed to calculate {} with error: {} and output: {}'.format(metric_name, ve, outputs_t))
 
             # Update timer for batch
             batch_time_t.update(time.time() - end_time_t)
@@ -156,9 +190,9 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                       'Training Time: {batch_time.val:.3f} ({batch_time.avg:.3f}) \t '
                       'Training Data Time: {data_time.val:.3f} ({data_time.avg:.3f}) \t '
                       'Training Loss: {loss.val:.4f} ({loss.avg:.4f}) \t '
-                      'Training R2 Score: {r2.val:.3f} ({r2.avg:.3f}) \t'
+                      'Training {metric_name} Score: {metric.val:.3f} ({metric.avg:.3f}) \t'
                       .format(j+1, len(train_data_loader), i + 1, batch_time=batch_time_t, data_time=data_time_t,
-                              loss=losses_t, r2=r2_values_t))
+                              loss=losses_t, metric_name=metric_name, metric=metric_values_t))
 
             # Reset end timer
             end_time_t = time.time()
@@ -168,11 +202,12 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
               'Training Time: {batch_time.avg:.3f} \t '
               'Training Data Time: {data_time.avg:.3f}) \t '
               'Training Loss: {loss.avg:.4f} \t '
-              'Training R2 score: {r2.avg:.3f} \t'
-              .format(i+1, batch_time=batch_time_t, data_time=data_time_t, loss=losses_t, r2=r2_values_t))
+              'Training {metric_name} score: {metric.avg:.3f} \t'
+              .format(i+1, batch_time=batch_time_t, data_time=data_time_t, loss=losses_t, metric_name=metric_name,
+                      metric=metric_values_t))
 
         if cfg.logging.logging_enabled:
-            log_train_metrics(experiment, losses_t.avg, r2_values_t.avg)
+            log_train_metrics(experiment, losses_t.avg, metric_values_t.avg)
 
         # Validation
 
@@ -180,7 +215,7 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
         if i % 10 == 0:
             end_time_v = time.time()
             model.eval()
-            all_out_v = np.zeros((0))
+            all_result_v = np.zeros((0))
             all_target_v = np.zeros((0))
             all_uids_v = np.zeros((0))
             all_loss_v = np.zeros((0))
@@ -195,7 +230,10 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                             inputs_v[p] = inp.to(device, non_blocking=True)
                     else:
                         inputs_v = inputs_v.to(device, non_blocking=True)
+                    if goal_type == 'classification':
+                        targets_v = targets_v.long().squeeze()
                     targets_v = targets_v.to(device, non_blocking=True)
+
                 with torch.no_grad():
                     # Get model validation output and validation loss
                     with autocast(enabled=use_half_prec):
@@ -208,15 +246,25 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
 
                 # Update metrics
                 if cfg.evaluation.use_best_sample:
-                    all_out_v = np.concatenate((all_out_v, outputs_v.squeeze(axis=1).cpu().detach().numpy()))
-                    all_target_v = np.concatenate((all_target_v, targets_v.squeeze(axis=1).cpu().detach().numpy()))
+                    if goal_type == 'regression':
+                        all_result_v = np.concatenate((all_result_v, outputs_v.squeeze(axis=1).cpu().detach().numpy()))
+                        all_target_v = np.concatenate((all_target_v, targets_v.squeeze(axis=1).cpu().detach().numpy()))
+                        all_loss_v = np.concatenate((all_loss_v, loss_v.cpu().squeeze(axis=1).detach().numpy()))
+                    else:
+                        all_result_v = np.concatenate((all_result_v, np.argmax(outputs_v.cpu().detach().numpy(), 1)))
+                        all_target_v = np.concatenate((all_target_v, targets_v.cpu().detach().numpy()))
+                        all_loss_v = np.concatenate((all_loss_v, loss_v.cpu().detach().numpy()))
                     all_uids_v = np.concatenate((all_uids_v, uids_v))
-                    all_loss_v = np.concatenate((all_loss_v, loss_v.cpu().squeeze(axis=1).detach().numpy()))
+
                 else:
-                    r2_targets_v = targets_v.cpu().detach().numpy()
-                    r2_outputs_v = outputs_v.cpu().detach()
-                    r2_v = r2_score(r2_targets_v, r2_outputs_v)
-                    r2_values_v.update(r2_v)
+                    metric_targets_v = targets_v.cpu().detach().numpy()
+                    metric_outputs_v = outputs_v.cpu().detach().numpy()
+                    if goal_type == 'regression':
+                        metric_v = r2_score(metric_targets_v, metric_outputs_v)
+                    else:
+                        predictions_v = np.argmax(metric_outputs_v, 1)
+                        metric_v = accuracy_score(metric_targets_v, predictions_v)
+                    metric_values_v.update(metric_v)
                     losses_v.update(loss_mean_v)
 
                     if k % 100 == 0:
@@ -224,19 +272,19 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                               'Validation Time: {batch_time.val:.3f} ({batch_time.avg:.3f}) \t '
                               'Validation Data Time: {data_time.val:.3f} ({data_time.avg:.3f}) \t '
                               'Validation Loss: {loss.val:.4f} ({loss.avg:.4f}) \t '
-                              'Validation R2 Score: {r2.val:.3f} ({r2.avg:.3f}) \t'
+                              'Validation {metric_name} Score: {metric.val:.3f} ({metric.avg:.3f}) \t'
                               .format(k + 1, len(val_data_loader), i + 1, batch_time=batch_time_v, data_time=data_time_v,
-                                      loss=losses_v, r2=r2_values_v))
+                                      loss=losses_v, metric_name=metric_name, metric=metric_values_v))
 
                 end_time_v = time.time()
 
             if cfg.evaluation.use_best_sample:
                 # As results are over all possible combinations of views in each examination
                 # each different combination needs to have a weight equal to its ratio.
-                val_data = np.array((all_uids_v, all_out_v, all_target_v, all_loss_v))
+                val_data = np.array((all_uids_v, all_result_v, all_target_v, all_loss_v))
                 val_data = val_data.transpose(1, 0)
-                pd_val_data = pd.DataFrame(val_data, columns=['us_id', 'output', 'target', 'loss'])
-                pd_val_data[['output', 'target', 'loss']] = pd_val_data[['output', 'target', 'loss']].astype(np.float32)
+                pd_val_data = pd.DataFrame(val_data, columns=['us_id', 'result', 'target', 'loss'])
+                pd_val_data[['result', 'target', 'loss']] = pd_val_data[['result', 'target', 'loss']].astype(np.float32)
                 val_ue = pd_val_data.drop_duplicates(subset='us_id')[['us_id', 'target']]
                 all_mean_loss = []
                 for ue in val_ue.itertuples():
@@ -246,45 +294,50 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                     mean_exam_loss = exam_results['loss'].mean()
                     all_mean_loss.append(mean_exam_loss)
                     for indx in exam_results.index:
-                        pd_val_data.loc[indx, 'r2_weight'] = weight
+                        pd_val_data.loc[indx, 'metric_weight'] = weight
                 np_loss = np.array(all_mean_loss, dtype=np.float32)
-                v_loss_mean = np_loss.mean()
+                loss_mean_v = np_loss.mean()
                 targets = pd_val_data['target'].to_numpy()
-                outputs = pd_val_data['output'].to_numpy()
-                weights = pd_val_data['r2_weight'].to_numpy()
-                v_r2 = r2_score(targets, outputs, sample_weight=weights)
+                results = pd_val_data['result'].to_numpy()
+                weights = pd_val_data['metric_weight'].to_numpy()
+                if goal_type == 'regression':
+                    metric_v = r2_score(targets, results, sample_weight=weights)
+                else:
+                    metric_v = accuracy_score(targets.astype(np.int), results.astype(np.int), sample_weight=weights)
             else:
-                v_loss_mean = losses_v.avg
-                v_r2 = r2_values_v.avg
+                loss_mean_v = losses_v.avg
+                metric_v = metric_values_v.avg
 
             # End of validation epoch prints and updates
             print('Finished Validation Epoch: {} \t '
                   'Validation Time: {batch_time.avg:.3f} \t '
                   'Validation Data Time: {data_time.avg:.3f} \t '
                   'Validation Loss: {loss:.4f} \t '
-                  'Validation R2 score: {r2:.3f} \t'
-                  .format(i+1, batch_time=batch_time_v, data_time=data_time_v, loss=v_loss_mean, r2=v_r2))
-            print('Example targets: {} \n Example outputs: {}'.format(torch.squeeze(targets_v), torch.squeeze(outputs_v)))
-
+                  'Validation {metric_name} score: {metric:.3f} \t'
+                  .format(i+1, batch_time=batch_time_v, data_time=data_time_v, loss=loss_mean_v, metric_name=metric_name
+                          , metric=metric_v))
+            if goal_type == 'regression':
+                print('Example targets: {} \n Example outputs: {}'.format(torch.squeeze(targets_v), torch.squeeze(outputs_v)))
+            
         if use_scheduler:
-            scheduler.step(v_loss_mean)
+            scheduler.step(loss_mean_v)
 
         if cfg.training.checkpointing_enabled and cfg.logging.logging_enabled:
-            if v_r2 > max_val_r2:
+            if metric_v > max_val_metric:
                 checkpoint_name = cfg.training.checkpoint_save_path + cfg.model.name + '_' + cfg.data.type + '_'\
                                   + cfg.data.name + '_exp_' + experiment.id + '.pth'
                 save_checkpoint(checkpoint_name, model, optimizer)
-                max_val_r2 = v_r2
+                max_val_metric = metric_v
         elif cfg.training.checkpointing_enabled:
-            if v_r2 > max_val_r2:
+            if metric_v > max_val_metric:
                 checkpoint_name = cfg.training.checkpoint_save_path + cfg.model.name + '_' + cfg.data.type + '_'\
                                   + cfg.data.name + '_test' + '.pth'
                 save_checkpoint(checkpoint_name, model, optimizer)
-                max_val_r2 = v_r2
+                max_val_metric = metric_v
 
         if i % 10 == 0:
             if cfg.logging.logging_enabled:
-                log_val_metrics(experiment, v_loss_mean, v_r2, max_val_r2)
+                log_val_metrics(experiment, loss_mean_v, metric_v, max_val_metric)
 
         epoch_time = time.time() - start_time_epoch
         rem_epochs = cfg.training.epochs - (i+1)
@@ -292,15 +345,15 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
         print('Epoch {} completed. Time to complete: {}. Estimated remaining time: {}'.format(i+1, epoch_time, format_time(rem_time)))
 
 
-def log_train_metrics(experiment, t_loss, t_r2):
+def log_train_metrics(experiment, t_loss, t_metric):
     experiment.log_metric('training_loss', t_loss)
-    experiment.log_metric('training_r2', t_r2)
+    experiment.log_metric('training_r2', t_metric)
 
 
-def log_val_metrics(experiment, v_loss, v_r2, best_v_r2):
+def log_val_metrics(experiment, v_loss, v_metric, best_v_metric):
     experiment.log_metric('validation_loss', v_loss)
-    experiment.log_metric('validation_r2', v_r2)
-    experiment.log_metric('best_val_r2', best_v_r2)
+    experiment.log_metric('validation_r2', v_metric)
+    experiment.log_metric('best_val_r2', best_v_metric)
 
 
 def save_checkpoint(save_file_path, model, optimizer):
@@ -313,6 +366,7 @@ def save_checkpoint(save_file_path, model, optimizer):
         'optimizer': optimizer.state_dict(),
     }
     torch.save(save_states, save_file_path)
+
 
 def format_time(time_as_seconds):
     s = time.localtime(time_as_seconds)

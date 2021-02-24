@@ -16,8 +16,8 @@ import pandas as pd
 @hydra.main(config_path="cfg", config_name="config")
 def main(cfg: DictConfig) -> None:
 
-    target_path = cfg.data.val_targets
-    result_path = '/home/ola/Projects/SUEF/results/8-stream-results.csv'
+    target_path = cfg.data.train_targets
+    result_path = '/home/ola/Projects/SUEF/results/8-stream-train-results.csv'
 
     state_dict = torch.load(cfg.model.best_model)['model']
     model_img, model_flow = create_two_stream_models(cfg, '', '')
@@ -51,7 +51,7 @@ def main(cfg: DictConfig) -> None:
     # Set loss criterion
     criterion = nn.MSELoss()
 
-    val_d_set = MultiStreamDataset(cfg.data, cfg.transforms.eval_t, cfg.augmentations.eval_a, cfg.data.val_targets, is_eval_set=True)
+    val_d_set = MultiStreamDataset(cfg.data, cfg.transforms.eval_t, cfg.augmentations.eval_a, cfg.data.train_targets, is_eval_set=False)
 
     val_data_loader = DataLoader(val_d_set, batch_size=cfg.data_loader.batch_size_eval,
                                  num_workers=cfg.data_loader.n_workers, drop_last=cfg.data_loader.drop_last)

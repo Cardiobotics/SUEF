@@ -73,6 +73,9 @@ def main(cfg: DictConfig) -> None:
                     tags.append('shared-weights')
                     model_img, model_flow = create_two_stream_models(cfg, '', '')
                     model = multi_stream.MultiStreamShared(model_img, model_flow, len(state_dict['Linear_layer.weight'][0]))
+                    model.load_state_dict(state_dict)
+                    if not len(state_dict['Linear_layer.weight'][0]) == len(cfg.data.allowed_views) * 2:
+                        model.replace_fc(len(cfg.data.allowed_views) * 2)
                 else:
                     model_dict = {}
                     for view in cfg.data.allowed_views:
@@ -82,9 +85,6 @@ def main(cfg: DictConfig) -> None:
                         model_dict[m_img_name] = model_img
                         model_dict[m_flow_name] = model_flow
                     model = multi_stream.MultiStream(model_dict)
-            model.load_state_dict(state_dict)
-            if not len(state_dict['Linear_layer.weight'][0]) == len(cfg.data.allowed_views) * 2:
-                model.replace_fc(len(cfg.data.allowed_views) * 2)
         else:
             if cfg.data.type == 'img':
                 tags.append('spatial')
@@ -104,7 +104,8 @@ def main(cfg: DictConfig) -> None:
                     tags.append('shared-weights')
                     model_img, model_flow = create_two_stream_models(cfg, cfg.model.pre_trained_checkpoint_img,
                                                                      cfg.model.pre_trained_checkpoint_flow)
-                    model = multi_stream.MultiStreamShared(model_img, model_flow, len(cfg.data.allowed_views)*2)
+                    model = multi_stream.MultiStreamShared(model_img, model_flow, len(cfg.data.allowed_views)*2,
+                                                           cfg.model.n_classes)
                 else:
                     model_dict = {}
                     for view in cfg.data.allowed_views:
@@ -114,9 +115,11 @@ def main(cfg: DictConfig) -> None:
                                                                          cfg.model.pre_trained_checkpoint_flow)
                         model_dict[m_img_name] = model_img
                         model_dict[m_flow_name] = model_flow
-                    model = multi_stream.MultiStream(model_dict)
+                    model = multi_stream.MultiStream(model_dict, cfg.model.n_classes)
 
-    train_data_loader, val_data_loader = create_data_loaders(cfg)
+    train_data_set, val_data_set = create_data_sets(cfg)
+
+    train_data_loader, val_data_loader = create_data_loaders(cfg, train_data_set, val_data_set)
 
     experiment = None
     if cfg.logging.logging_enabled:
@@ -134,16 +137,9 @@ def main(cfg: DictConfig) -> None:
     train_and_validate(model, train_data_loader, val_data_loader, cfg, experiment=experiment)
 
 
-def create_data_loaders(cfg):
-    if cfg.data.type == 'multi-stream':
-        dataset_c = MultiStreamDataset
-    else:
-        dataset_c = NPYDataset
-    # Create DataLoaders for training and validation
-    train_d_set = dataset_c(cfg.data, cfg.transforms.train_t, cfg.augmentations.train_a, cfg.data.train_targets, is_eval_set=False)
-    train_d_size = len(train_d_set)
-    print("Training dataset size: {}".format(train_d_size))
+def create_data_loaders(cfg, train_d_set, val_d_set):
     if cfg.data_loader.weighted_sampler:
+        train_d_size = len(train_d_set)
         weights = [1.0] * train_d_size
         sampler = WeightedRandomSampler(weights=weights, num_samples=train_d_size, replacement=True)
     else:
@@ -152,12 +148,25 @@ def create_data_loaders(cfg):
                                    num_workers=cfg.data_loader.n_workers, drop_last=cfg.data_loader.drop_last,
                                    sampler=sampler)
 
-    val_d_set = dataset_c(cfg.data, cfg.transforms.eval_t, cfg.augmentations.eval_a, cfg.data.val_targets, is_eval_set=True)
-    print("Validation dataset size: {}".format(len(val_d_set)))
     val_data_loader = DataLoader(val_d_set, batch_size=cfg.data_loader.batch_size_eval,
                                  num_workers=cfg.data_loader.n_workers, drop_last=cfg.data_loader.drop_last)
 
     return train_data_loader, val_data_loader
+
+
+def create_data_sets(cfg):
+    if cfg.data.type == 'multi-stream':
+        dataset_c = MultiStreamDataset
+    else:
+        dataset_c = NPYDataset
+    # Create DataLoaders for training and validation
+    train_d_set = dataset_c(cfg.data, cfg.transforms.train_t, cfg.augmentations.train_a, cfg.data.train_targets, is_eval_set=False)
+    print("Training dataset size: {}".format(len(train_d_set)))
+
+    val_d_set = dataset_c(cfg.data, cfg.transforms.eval_t, cfg.augmentations.eval_a, cfg.data.val_targets, is_eval_set=True)
+    print("Validation dataset size: {}".format(len(val_d_set)))
+
+    return train_d_set, val_d_set
 
 
 def create_two_stream_models(cfg, checkpoint_img, checkpoint_flow):

@@ -1,4 +1,5 @@
 import torch.nn as nn
+import torch.nn.functional as F
 from .gelu import GELU
 from torch.cuda.amp import autocast
 
@@ -11,8 +12,8 @@ class PositionwiseFeedForward(nn.Module):
         self.w_1 = nn.Linear(d_model, d_ff)
         self.w_2 = nn.Linear(d_ff, d_model)
         self.dropout = nn.Dropout(dropout)
-        self.activation = GELU()
+        #self.activation = GELU()
 
     @autocast(enabled=False)
     def forward(self, x):
-        return self.w_2(self.dropout(self.activation(self.w_1(x))))
+        return self.w_2(self.dropout(F.gelu(self.w_1(x))))
