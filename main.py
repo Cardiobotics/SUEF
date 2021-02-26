@@ -3,140 +3,113 @@ from torch.utils.data import DataLoader, WeightedRandomSampler, RandomSampler
 from models import custom_cnn, resnext, i3d_bert, multi_stream
 from training import train_and_validate
 import neptune
-import hydra
 from data.npy_dataset import NPYDataset
 from data.multi_stream_dataset import MultiStreamDataset
-from omegaconf import DictConfig
 import logging
 import os
-import argparse
+from arguments import get_args
 import json
 
 logging.basicConfig(level=logging.INFO)
 logging.getLogger('numexpr').setLevel(logging.WARNING)
 
 
-@hydra.main(config_path="cfg", config_name="config")
-def main(cfg: DictConfig) -> None:
+def main():
 
-    parser = argparse.ArgumentParser('Configuration for deepspeed')
-    parser.add_argument('--deepspeed_config', type=str, default='deepspeed_config.json',
-                        help='The full path to the deepspeed config')
+    args = get_args()
 
-    args = parser.parse_args()
-    with open(args.deepspeed_config) as f:
-        deepspeed_cfg = json.load(f)
-
-    assert cfg.model.name in ['ccnn', 'resnext', 'i3d', 'i3d_bert', 'i3d_bert_2stream']
-    assert cfg.data.type in ['img', 'flow', 'multi-stream']
+    assert args.model_name in ['ccnn', 'resnext', 'i3d', 'i3d_bert']
+    assert args.data_type in ['img', 'flow', 'multi-stream']
 
     tags = []
 
-    if cfg.model.name == 'ccnn':
+    if args.model_name == 'ccnn':
         tags.append('CNN')
         model = custom_cnn.CNN()
-    elif cfg.model.name == 'resnext':
-        tags.append('ResNeXt')
-        model = resnext.generate_model(model_depth=cfg.model.model_depth,
-                                       cardinality=cfg.model.cardinality,
-                                       n_classes=cfg.model.n_classes,
-                                       n_input_channels=cfg.model.n_input_channels,
-                                       shortcut_type=cfg.model.shortcut_type,
-                                       conv1_t_size=cfg.model.conv1_t_size,
-                                       conv1_t_stride=cfg.model.conv1_t_stride)
-        model.load_state_dict(torch.load(cfg.model.pre_trained_checkpoint))
-    elif cfg.model.name == 'i3d':
+    elif args.model_name == 'i3d':
         tags.append('I3D')
-        if cfg.training.continue_training:
-            checkpoint = cfg.model.best_model
+        if args.continue_training:
+            checkpoint = args.pre_trained_checkpoint
         else:
-            checkpoint = cfg.model.pre_trained_checkpoint
-        if cfg.data.type == 'img':
+            checkpoint = ''
+        if args.data_type == 'img':
             tags.append('spatial')
-            model = i3d_bert.inception_model(checkpoint, cfg.model.n_classes, cfg.model.n_input_channels,
-                                             cfg.model.pre_n_classes, cfg.model.pre_n_input_channels)
-        elif cfg.data.type == 'flow':
+            model = i3d_bert.inception_model(checkpoint, args.n_outputs, args.n_input_channels_img)
+        elif args.data_type == 'flow':
             tags.append('temporal')
             tags.append('TVL1')
-            model = i3d_bert.inception_model_flow(checkpoint, cfg.model.n_classes, cfg.model.n_input_channels,
-                                                  cfg.model.pre_n_classes, cfg.model.pre_n_input_channels)
-    elif cfg.model.name == 'i3d_bert':
+            model = i3d_bert.inception_model_flow(checkpoint, args.n_outputs, args.n_input_channels_flow)
+    elif args.model_name == 'i3d_bert':
         tags.append('I3D')
         tags.append('BERT')
-        if cfg.training.continue_training:
-            state_dict = torch.load(cfg.model.best_model)['model']
-            if cfg.data.type == 'img':
+        if args.continue_training:
+            state_dict = torch.load(args.pre_trained_checkpoint)['model']
+            if args.data_type == 'img':
                 tags.append('spatial')
-                model = i3d_bert.rgb_I3D64f_bert2_FRMB('', cfg.model.length, cfg.model.n_classes,
-                                                       cfg.model.n_input_channels, cfg.model.pre_n_classes,
-                                                       cfg.model.pre_n_input_channels)
-            if cfg.data.type == 'flow':
+                model = i3d_bert.rgb_I3D64f_bert2_FRMB('', args.n_outputs, args.n_input_channels_img)
+            if args.data_type == 'flow':
                 tags.append('temporal')
                 tags.append('TVL1')
-                model = i3d_bert.flow_I3D64f_bert2_FRMB('', cfg.model.length, cfg.model.n_classes,
-                                                        cfg.model.n_input_channels, cfg.model.pre_n_classes,
-                                                        cfg.model.pre_n_input_channels)
-            if cfg.data.type == 'multi-stream':
+                model = i3d_bert.flow_I3D64f_bert2_FRMB('', args.n_outputs, args.n_input_channels_flow)
+            if args.data_type == 'multi-stream':
                 tags.append('multi-stream')
                 tags.append('TVL1')
-                if cfg.model.shared_weights:
+                if args.shared_weights:
                     tags.append('shared-weights')
-                    model_img, model_flow = create_two_stream_models(cfg, '', '')
+                    model_img, model_flow = create_two_stream_models(args, '', '')
                     model = multi_stream.MultiStreamShared(model_img, model_flow, len(state_dict['Linear_layer.weight'][0]))
                     model.load_state_dict(state_dict)
-                    if not len(state_dict['Linear_layer.weight'][0]) == len(cfg.data.allowed_views) * 2:
-                        model.replace_fc(len(cfg.data.allowed_views) * 2)
+                    if not len(state_dict['Linear_layer.weight'][0]) == len(args.allowed_views) * 2:
+                        model.replace_fc(len(args.allowed_views) * 2)
                 else:
                     model_dict = {}
-                    for view in cfg.data.allowed_views:
+                    for view in args.allowed_views:
                         m_img_name = 'model_img_' + str(view)
                         m_flow_name = 'model_flow_' + str(view)
-                        model_img, model_flow = create_two_stream_models(cfg, '', '')
+                        model_img, model_flow = create_two_stream_models(args, '', '')
                         model_dict[m_img_name] = model_img
                         model_dict[m_flow_name] = model_flow
                     model = multi_stream.MultiStream(model_dict)
         else:
-            if cfg.data.type == 'img':
+            if args.data_type == 'img':
                 tags.append('spatial')
-                model = i3d_bert.rgb_I3D64f_bert2_FRMB(cfg.model.pre_trained_checkpoint, cfg.model.length,
-                                                       cfg.model.n_classes, cfg.model.n_input_channels,
-                                                       cfg.model.pre_n_classes, cfg.model.pre_n_input_channels)
-            if cfg.data.type == 'flow':
+                model = i3d_bert.rgb_I3D64f_bert2_FRMB(args.pre_trained_i3d_img, args.n_outputs,
+                                                       args.n_input_channels_img)
+            if args.data_type == 'flow':
                 tags.append('temporal')
                 tags.append('TVL1')
-                model = i3d_bert.flow_I3D64f_bert2_FRMB(cfg.model.pre_trained_checkpoint, cfg.model.length,
-                                                        cfg.model.n_classes, cfg.model.n_input_channels,
-                                                        cfg.model.pre_n_classes, cfg.model.pre_n_input_channels)
-            if cfg.data.type == 'multi-stream':
+                model = i3d_bert.flow_I3D64f_bert2_FRMB(args.pre_trained_i3d_flow, args.n_outputs,
+                                                        args.n_input_channels_flow)
+            if args.data_type == 'multi-stream':
                 tags.append('multi-stream')
                 tags.append('TVL1')
-                if cfg.model.shared_weights:
+                if args.shared_weights:
                     tags.append('shared-weights')
-                    model_img, model_flow = create_two_stream_models(cfg, cfg.model.pre_trained_checkpoint_img,
-                                                                     cfg.model.pre_trained_checkpoint_flow)
-                    model = multi_stream.MultiStreamShared(model_img, model_flow, len(cfg.data.allowed_views)*2,
-                                                           cfg.model.n_classes)
+                    model_img, model_flow = create_two_stream_models(args, args.pre_trained_i3d_img,
+                                                                     args.pre_trained_i3d_flow)
+                    model = multi_stream.MultiStreamShared(model_img, model_flow, len(args.allowed_views)*2,
+                                                           args.n_outputs)
                 else:
                     model_dict = {}
-                    for view in cfg.data.allowed_views:
+                    for view in args.allowed_views:
                         m_img_name = 'model_img_' + str(view)
                         m_flow_name = 'model_flow_' + str(view)
-                        model_img, model_flow = create_two_stream_models(cfg, cfg.model.pre_trained_checkpoint_img,
-                                                                         cfg.model.pre_trained_checkpoint_flow)
+                        model_img, model_flow = create_two_stream_models(args, args.pre_trained_i3d_img,
+                                                                         args.pre_trained_i3d_flow)
                         model_dict[m_img_name] = model_img
                         model_dict[m_flow_name] = model_flow
-                    model = multi_stream.MultiStream(model_dict, cfg.model.n_classes)
+                    model = multi_stream.MultiStream(model_dict, args.n_outputs)
 
-    train_data_set, val_data_set = create_data_sets(cfg)
+    train_data_set, val_data_set = create_data_sets(args)
 
-    train_data_loader, val_data_loader = create_data_loaders(cfg, deepspeed_cfg['train_batch_size'], train_data_set, val_data_set)
+    train_data_loader, val_data_loader = create_data_loaders(args, train_data_set, val_data_set)
 
     experiment = None
-    if cfg.logging.logging_enabled:
-        neptune.init(cfg.logging.project_name)
+    if args.logging_enabled:
+        neptune.init(args.project_name)
         experiment_params = {**deepspeed_cfg, **dict(cfg.data_loader), **dict(**cfg.transforms), **dict(**cfg.augmentations),
                              **dict(cfg.performance), **dict(cfg.training), **dict(cfg.optimizer), **dict(cfg.model),
-                             **dict(cfg.evaluation), 'data_stream': cfg.data.type, 'view': cfg.data.name,
+                             **dict(cfg.evaluation), 'data_stream': args.data_type, 'view': cfg.data.name,
                              'train_dataset_size': len(train_data_loader.dataset),
                              'val_dataset_size': len(val_data_loader.dataset)}
         experiment = neptune.create_experiment(name=cfg.logging.experiment_name, params=experiment_params, tags=tags)
@@ -165,7 +138,7 @@ def create_data_loaders(cfg, train_batch_size, train_d_set, val_d_set):
 
 
 def create_data_sets(cfg):
-    if cfg.data.type == 'multi-stream':
+    if args.data_type == 'multi-stream':
         dataset_c = MultiStreamDataset
     else:
         dataset_c = NPYDataset
@@ -180,11 +153,11 @@ def create_data_sets(cfg):
 
 
 def create_two_stream_models(cfg, checkpoint_img, checkpoint_flow):
-    model_img = i3d_bert.rgb_I3D64f_bert2_FRMB(checkpoint_img, cfg.model.length,
-                                               cfg.model.n_classes, cfg.model.n_input_channels_img,
+    model_img = i3d_bert.rgb_I3D64f_bert2_FRMB(checkpoint_img,
+                                               args.n_outputs, args.n_input_channels_img,
                                                cfg.model.pre_n_classes, cfg.model.pre_n_input_channels_img)
-    model_flow = i3d_bert.flow_I3D64f_bert2_FRMB(checkpoint_flow, cfg.model.length,
-                                                 cfg.model.n_classes, cfg.model.n_input_channels_flow,
+    model_flow = i3d_bert.flow_I3D64f_bert2_FRMB(checkpoint_flow,
+                                                 args.n_outputs, args.n_input_channels_flow,
                                                  cfg.model.pre_n_classes, cfg.model.pre_n_input_channels_flow)
     return model_img, model_flow
 

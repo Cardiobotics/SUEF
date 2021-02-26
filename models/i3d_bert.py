@@ -176,16 +176,15 @@ class flow_I3D64f_bert2(nn.Module):
 
 # rgb_I3D64f_bert2S
 class rgb_I3D64f_bert2_FRMB(nn.Module):
-    def __init__(self, checkpoint, length, num_classes, num_channels, pre_n_classes, pre_n_channels):
+    def __init__(self, checkpoint, num_classes, num_channels):
         super(rgb_I3D64f_bert2_FRMB, self).__init__()
         self.hidden_size = 512
         self.n_layers = 1
         self.attn_heads = 8
         self.num_classes = num_classes
-        self.length = length
         self.dp = nn.Dropout(p=0.8)
 
-        self.features = nn.Sequential(*list(inception_model(checkpoint, num_classes, num_channels, pre_n_classes, pre_n_channels).children())[3:])
+        self.features = nn.Sequential(*list(inception_model(checkpoint, num_classes, num_channels).children())[3:])
 
         for param in self.features.parameters():
             param.requires_grad = True
@@ -222,16 +221,15 @@ class rgb_I3D64f_bert2_FRMB(nn.Module):
 
 # flow_I3D64f_bert2S
 class flow_I3D64f_bert2_FRMB(nn.Module):
-    def __init__(self, checkpoint, length, num_classes, num_channels, pre_n_classes, pre_n_channels):
+    def __init__(self, checkpoint, num_classes, num_channels, pre_n_classes, pre_n_channels):
         super(flow_I3D64f_bert2_FRMB, self).__init__()
         self.hidden_size = 512
         self.n_layers = 1
         self.attn_heads = 8
         self.num_classes = num_classes
-        self.length = length
         self.dp = nn.Dropout(p=0.8)
 
-        self.features = nn.Sequential(*list(inception_model_flow(checkpoint, num_classes, num_channels, pre_n_classes, pre_n_channels).children())[3:])
+        self.features = nn.Sequential(*list(inception_model_flow(checkpoint, num_classes, num_channels).children())[3:])
 
         for param in self.features.parameters():
             param.requires_grad = True
@@ -683,31 +681,45 @@ class InceptionI3d(nn.Module):
         return self.avg_pool(x)
 
 
-def inception_model(checkpoint, n_classes, n_channels, pre_n_classes, pre_n_channels):
-    model = InceptionI3d(pre_n_classes, in_channels=n_channels)
+def inception_model(checkpoint, n_classes, n_channels):
     if checkpoint == '':
-        return model
+        return InceptionI3d(n_classes, in_channels=n_channels)
     else:
         state_dict = torch.load(checkpoint)
+
+    pre_n_classes = state_dict['logits.conv3d.weight'].shape[0]
+    pre_n_channels = state_dict['Conv3d_1a_7x7.conv3d.weight'].shape[1]
+    model = InceptionI3d(pre_n_classes, in_channels=n_channels)
+
     if not pre_n_channels == n_channels:
         conv1_weights = state_dict['Conv3d_1a_7x7.conv3d.weight']
         state_dict['Conv3d_1a_7x7.conv3d.weight'] = conv1_weights.mean(dim=1, keepdim=True)
+
     model.load_state_dict(state_dict)
+
     if not pre_n_classes == n_classes:
         model.replace_logits(n_classes)
+
     return model
 
 
-def inception_model_flow(checkpoint, n_classes, n_channels, pre_n_classes, pre_n_channels):
-    model = InceptionI3d(pre_n_classes, in_channels=n_channels)
+def inception_model_flow(checkpoint, n_classes, n_channels):
     if checkpoint == '':
-        return model
+        return InceptionI3d(n_classes, in_channels=n_channels)
     else:
         state_dict = torch.load(checkpoint)
+
+    pre_n_classes = state_dict['logits.conv3d.weight'].shape[0]
+    pre_n_channels = state_dict['Conv3d_1a_7x7.conv3d.weight'].shape[1]
+    model = InceptionI3d(pre_n_classes, in_channels=n_channels)
+
     if not pre_n_channels == n_channels:
         conv1_weights = state_dict['Conv3d_1a_7x7.conv3d.weight']
         state_dict['Conv3d_1a_7x7.conv3d.weight'] = conv1_weights.mean(dim=1, keepdim=True)
+
     model.load_state_dict(state_dict)
+
     if not pre_n_classes == n_classes:
         model.replace_logits(n_classes)
+
     return model
