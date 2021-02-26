@@ -1,19 +1,16 @@
 import numpy as np
 from skimage.util import random_noise
-from skimage.util import img_as_float32
 from skimage.util import crop
-from skimage.color import rgb2gray
 from skimage.transform import resize
 from skimage.transform import rotate
 from random import choice
 from random import randint
 import time
-from omegaconf import OmegaConf, DictConfig
 import cv2
 
 
 class DataAugmentations:
-    def __init__(self, transforms, augmentations):
+    def __init__(self, args, is_eval_set):
         '''
         Class for all transforms and augmentations to be applied.
         Holds configurations on what to apply and methods for
@@ -23,11 +20,11 @@ class DataAugmentations:
         '''
         super(DataAugmentations).__init__()
         
-        self.transforms = transforms
-        self.augmentations = augmentations
+        self.options = args
+        self.is_eval_set = is_eval_set
         self.debug = False
 
-        if self.transforms.normalize_input:
+        if self.options.normalize_input:
             self.black_val = -1.0
             self.white_val = 1.0
         else:
@@ -42,66 +39,67 @@ class DataAugmentations:
         '''
         time_start = time.time()
         # Pixel values expected to be in range 0-255
-        if self.transforms.normalize_input:
+        if self.options.normalize_input:
             img = self.t_normalize_signed(img)
         if self.debug:
             time_ni = time.time()
             time_ni_diff = time_ni - time_start
             print("Normalized input. Time to process: {}".format(time_ni_diff))
 
-        # Add some kind of noise to the image
-        if self.augmentations.gaussian_noise:
-            img = self.t_gaussian_noise(img)
-        if self.debug:
-            time_gn = time.time()
-            time_gn_diff = time_gn - time_ni
-            print("Added gaussian noise. Time to process: {}".format(time_gn_diff))
-        if self.augmentations.speckle:
-            img = self.t_speckle(img)
-        if self.debug:
-            time_spk = time.time()
-            time_spk_diff = time_spk - time_gn
-            print("Added speckle. Time to process: {}".format(time_spk_diff))
-        if self.augmentations.salt_and_pepper:
-            img = self.t_salt_and_pepper(img)
-        if self.debug:
-            time_sp = time.time()
-            time_sp_diff = time_sp - time_spk
-            print("Added Salt and Pepper. Time to process: {}".format(time_sp_diff))
+        if not self.is_eval_set:
+            # Add some kind of noise to the image
+            if self.options.gaussian_noise:
+                img = self.t_gaussian_noise(img)
+            if self.debug:
+                time_gn = time.time()
+                time_gn_diff = time_gn - time_ni
+                print("Added gaussian noise. Time to process: {}".format(time_gn_diff))
+            if self.options.speckle:
+                img = self.t_speckle(img)
+            if self.debug:
+                time_spk = time.time()
+                time_spk_diff = time_spk - time_gn
+                print("Added speckle. Time to process: {}".format(time_spk_diff))
+            if self.options.salt_and_pepper:
+                img = self.t_salt_and_pepper(img)
+            if self.debug:
+                time_sp = time.time()
+                time_sp_diff = time_sp - time_spk
+                print("Added Salt and Pepper. Time to process: {}".format(time_sp_diff))
 
-        # Shift the image in some way
-        if self.augmentations.translate_h:
-            img = self.t_translate_h(img)
-        if self.debug:
-            time_th = time.time()
-            time_th_diff = time_th - time_sp
-            print("Translated horizontal. Time to process: {}".format(time_th_diff))
-        if self.augmentations.translate_v:
-            img = self.t_translate_v(img)
-        if self.debug:
-            time_tv = time.time()
-            time_tv_diff = time_tv - time_th
-            print("Translated vertical. Time to process: {}".format(time_tv_diff))
-        if self.augmentations.rotate:
-            img = self.t_rotate(img)
-        if self.debug:
-            time_rot = time.time()
-            time_rot_diff = time_rot - time_tv
-            print("Rotated frames. Time to process: {}".format(time_rot_diff))
+            # Shift the image in some way
+            if self.options.shift_h:
+                img = self.t_shift_h(img)
+            if self.debug:
+                time_th = time.time()
+                time_th_diff = time_th - time_sp
+                print("Translated horizontal. Time to process: {}".format(time_th_diff))
+            if self.options.shift_v:
+                img = self.t_shift_v(img)
+            if self.debug:
+                time_tv = time.time()
+                time_tv_diff = time_tv - time_th
+                print("Translated vertical. Time to process: {}".format(time_tv_diff))
+            if self.options.rotate:
+                img = self.t_rotate(img)
+            if self.debug:
+                time_rot = time.time()
+                time_rot_diff = time_rot - time_tv
+                print("Rotated frames. Time to process: {}".format(time_rot_diff))
 
-        # Local changes
-        if self.augmentations.local_blackout:
-            img = self.t_local_blackout(img)
-        if self.debug:
-            time_lb = time.time()
-            time_lb_diff = time_lb - time_rot
-            print("Added local blackout. Time to process: {}".format(time_lb_diff))
-        if self.augmentations.local_intensity:
-            img = self.t_local_intensity(img)
-        if self.debug:
-            time_li = time.time()
-            time_li_diff = time_li - time_lb
-            print("Added local intensity. Time to process: {}".format(time_li_diff))
+            # Local changes
+            if self.options.local_blackout:
+                img = self.t_local_blackout(img)
+            if self.debug:
+                time_lb = time.time()
+                time_lb_diff = time_lb - time_rot
+                print("Added local blackout. Time to process: {}".format(time_lb_diff))
+            if self.options.local_intensity:
+                img = self.t_local_intensity(img)
+            if self.debug:
+                time_li = time.time()
+                time_li_diff = time_li - time_lb
+                print("Added local intensity. Time to process: {}".format(time_li_diff))
 
         return img.astype(np.float32)
 
@@ -114,29 +112,29 @@ class DataAugmentations:
         :return: The transformed image.
         '''
         time_start = time.time()
-        if self.transforms.grayscale:
+        if self.options.grayscale:
             img = self.t_grayscale_mean(img)
         if self.debug:
             time_gf = time.time()
             time_gf_diff = time_gf - time_start
             print("Image size after grayscale: {}, Time to process: {}".format(img.shape, time_gf_diff))
-        if self.transforms.rescale_fps or self.transforms.resize_frames or self.transforms.rescale_fphb:
-            assert not (self.transforms.rescale_fps and self.transforms.rescale_fphb)
+        if self.options.rescale_fps or self.options.resize_frames or self.options.rescale_fphb:
+            assert not (self.options.rescale_fps and self.options.rescale_fphb)
 
             # Rescale length by either fps or fphb
-            if self.transforms.rescale_fps and not self.transforms.target_fps == fps:
-                new_length = int(img.shape[0] * (self.transforms.target_fps/fps))
-            elif self.transforms.rescale_fphb:
+            if self.options.rescale_fps and not self.options.target_fps == fps:
+                new_length = int(img.shape[0] * (self.options.target_fps/fps))
+            elif self.options.rescale_fphb:
                 curr_fphb = self.calc_fphb(hr, fps)
-                new_length = int(img.shape[0]*(self.transforms.target_fphb/curr_fphb))
+                new_length = int(img.shape[0]*(self.options.target_fphb/curr_fphb))
             else:
                 new_length = img.shape[0]
 
             # Rescale size
-            if self.transforms.resize_frames and not (img.shape[1] == self.transforms.target_height and
-                                                      img.shape[2] == self.transforms.target_width):
-                new_height = self.transforms.target_height
-                new_width = self.transforms.target_width
+            if self.options.resize_frames and not (img.shape[1] == self.options.target_height and
+                                                      img.shape[2] == self.options.target_width):
+                new_height = self.options.target_height
+                new_width = self.options.target_width
             else:
                 new_height = img.shape[1]
                 new_width = img.shape[2]
@@ -147,13 +145,13 @@ class DataAugmentations:
             time_rescale = time.time()
             time_fps_diff = time_rescale - time_gf
             print("Image size after rescaling: {}, Time to process: {}".format(img.shape, time_fps_diff))
-        if self.transforms.crop_sides or self.transforms.crop_length:
+        if self.options.crop_sides or self.options.crop_length:
             img = self.t_crop(img)
         if self.debug:
             time_crop = time.time()
             time_crop_diff = time_crop - time_rescale
             print("Image size after cropping: {}, Time to process: {}".format(img.shape, time_crop_diff))
-        if self.transforms.loop_length:
+        if self.options.loop_length:
             img = self.t_loop_length(img)
         if self.debug:
             time_loop = time.time()
@@ -214,7 +212,7 @@ class DataAugmentations:
         :param img: The input image to be transformed.
         :return: The image with added noise
         '''
-        return random_noise(img, mode='gaussian', var=self.augmentations.gn_var)
+        return random_noise(img, mode='gaussian', var=self.options.gn_var)
 
     def t_salt_and_pepper(self, img):
         '''
@@ -222,7 +220,7 @@ class DataAugmentations:
         :param img: The input image to be transformed.
         :return: The image with added noise
         '''
-        return random_noise(img, mode='s&p', amount=self.augmentations.salt_and_pepper_amount)
+        return random_noise(img, mode='s&p', amount=self.options.salt_and_pepper_amount)
 
     def t_speckle(self, img):
         '''
@@ -230,7 +228,7 @@ class DataAugmentations:
         :param img: The input image to be transformed.
         :return: The image with added noise
         '''
-        return random_noise(img, mode='speckle', var=self.augmentations.speckle_var)
+        return random_noise(img, mode='speckle', var=self.options.speckle_var)
 
     def t_resize(self, img, target_length, target_height, target_width):
         '''
@@ -260,15 +258,15 @@ class DataAugmentations:
         '''
         Pads the frames of an image by adding black borders around it using the target sizes in the class object.
         :param img: The input image with shape (L,H,W,C)
-        :return: The image with the new shape (L, self.transforms.target_height, self.transforms.target_width, C)
+        :return: The image with the new shape (L, self.options.target_height, self.options.target_width, C)
         '''
         # Pad edges of frames
-        if self.transforms.target_height > img.shape[1] or self.transforms.target_width > img.shape[2]:
+        if self.options.target_height > img.shape[1] or self.options.target_width > img.shape[2]:
             pad_sequence = ((0, 0),
-                            (int((self.transforms.target_height - img.shape[1])/2),
-                            int((self.transforms.target_height - img.shape[1])/2)),
-                            (int((self.transforms.target_width - img.shape[2])/2),
-                             int((self.transforms.target_width - img.shape[2])/2)),
+                            (int((self.options.target_height - img.shape[1])/2),
+                            int((self.options.target_height - img.shape[1])/2)),
+                            (int((self.options.target_width - img.shape[2])/2),
+                             int((self.options.target_width - img.shape[2])/2)),
                             (0, 0))
             img = np.pad(img, pad_width=pad_sequence, constant_values=self.black_val)
         return img
@@ -277,14 +275,14 @@ class DataAugmentations:
         '''
         Extends the duration of an image sequence by looping it until a target length has been reached.
         :param img: The input image to be looped with the shape (L,H,W,C)
-        :return: The transformed image with the shape (self.transforms.target_length, H, W, C).
+        :return: The transformed image with the shape (self.options.target_length, H, W, C).
         '''
         org_img = img
-        while len(img) < self.transforms.target_length:
-            if len(org_img) <= self.transforms.target_length - len(img):
+        while len(img) < self.options.target_length:
+            if len(org_img) <= self.options.target_length - len(img):
                 img = np.append(img, org_img, axis=0)
             else:
-                img = np.append(img, org_img[0:self.transforms.target_length - len(img)], axis=0)
+                img = np.append(img, org_img[0:self.options.target_length - len(img)], axis=0)
         return img.astype(np.uint8)
 
     def t_crop(self, img):
@@ -295,22 +293,22 @@ class DataAugmentations:
         '''
         # Crop edges of frames
         crop_sequence = [(0, 0), (0, 0), (0, 0), (0, 0)]
-        if self.transforms.crop_sides:
+        if self.options.crop_sides:
             crop_sequence[1] = (int(img.shape[1] / 10), int(img.shape[1] / 10))
             crop_sequence[2] = (int(img.shape[2] / 20), int(img.shape[2] / 20))
-        if self.transforms.crop_length and img.shape[0] > self.transforms.target_length:
-            diff = img.shape[0] - self.transforms.target_length
+        if self.options.crop_length and img.shape[0] > self.options.target_length:
+            diff = img.shape[0] - self.options.target_length
             rand = randint(0, diff)
             crop_sequence[0] = (rand, diff - rand)
         return crop(img, crop_width=tuple(crop_sequence)).astype(np.uint8)
 
-    def t_translate_v(self, video):
+    def t_shift_v(self, video):
         '''
         Translates the frames of the input image sequence randomly vertically. Adding black pixels in the new areas.
         :param video: The image sequence to augment with shape (L,H,W,C)
         :return: The image sequence with the same shape (L,H,W,C) but each frame has been translated.
         '''
-        t_len = int(np.random.normal(0, self.augmentations.translate_v_std_dev_pxl))
+        t_len = int(np.random.normal(0, self.options.shift_v_std_dev_pxl))
 
         video = video.transpose(3, 0, 1, 2)
 
@@ -330,13 +328,13 @@ class DataAugmentations:
 
         return final_video.transpose(1, 2, 3, 0)
 
-    def t_translate_h(self, video):
+    def t_shift_h(self, video):
         '''
         Translates the frames of the input image sequence randomly horizontally. Adding black pixels in the new areas.
         :param video: The image sequence to augment with shape (L,H,W,C)
         :return: The image sequence with the same shape (L,H,W,C) but each frame has been translated.
         '''
-        t_len = int(np.random.normal(0, self.augmentations.translate_h_std_dev_pxl))
+        t_len = int(np.random.normal(0, self.options.shift_h_std_dev_pxl))
 
         video = video.transpose(3, 0, 1, 2)
 
@@ -361,7 +359,7 @@ class DataAugmentations:
         :param video: The image sequence to augment with shape (L,H,W,C)
         :return: The image sequence with the same shape (L,H,W,C) but each frame has been rotated.
         '''
-        t_rotation = np.random.normal(0, self.augmentations.rotate_std_dev_degrees)
+        t_rotation = np.random.normal(0, self.options.rotate_std_dev_degrees)
 
         video = video.transpose(3, 0, 1, 2)
 
@@ -382,8 +380,8 @@ class DataAugmentations:
         :return: The image sequence with the same shape (L,H,W,C) but each frame has the added black rectangle.
         '''
 
-        bo_size_h = int(abs(np.random.normal(0, self.augmentations.blackout_h_std_dev)))
-        bo_size_w = int(abs(np.random.normal(0, self.augmentations.blackout_w_std_dev)))
+        bo_size_h = int(abs(np.random.normal(0, self.options.blackout_h_std_dev)))
+        bo_size_w = int(abs(np.random.normal(0, self.options.blackout_w_std_dev)))
 
         bo_pos_h = np.random.randint(0, video.shape[1] - bo_size_h)
         bo_pos_w = np.random.randint(0, video.shape[2] - bo_size_w)
@@ -403,13 +401,13 @@ class DataAugmentations:
         :param video: The image sequence to augment with shape (L,H,W,C)
         :return: The image sequence with the same shape (L,H,W,C) but each frame has the added local intensity.
         '''
-        ints_size_h = int(abs(np.random.normal(0, self.augmentations.intensity_h_std_dev)))
-        ints_size_w = int(abs(np.random.normal(0, self.augmentations.intensity_w_std_dev)))
+        ints_size_h = int(abs(np.random.normal(0, self.options.intensity_h_std_dev)))
+        ints_size_w = int(abs(np.random.normal(0, self.options.intensity_w_std_dev)))
 
         ints_pos_h = np.random.randint(0, video.shape[1] - ints_size_h)
         ints_pos_w = np.random.randint(0, video.shape[2] - ints_size_w)
 
-        ints_val = np.random.normal(0, self.augmentations.intensity_var)
+        ints_val = np.random.normal(0, self.options.intensity_var)
 
         video = video.transpose(3, 0, 1, 2)
 

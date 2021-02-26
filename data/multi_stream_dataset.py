@@ -10,31 +10,34 @@ import time
 
 
 class MultiStreamDataset(torch.utils.data.Dataset):
-    def __init__(self, cfg_data, cfg_transforms, cfg_augmentations, target_file, is_eval_set):
+    def __init__(self, args, is_eval_set):
         super(MultiStreamDataset).__init__()
-        assert not (cfg_data.data_in_mem and cfg_data.preprocessed_data_on_disk)
+        assert not (args.data_in_mem and args.preprocessed_data_on_disk)
 
         self.is_eval_set = is_eval_set
-        self.allowed_views = cfg_data.allowed_views
-        self.data_in_mem = cfg_data.data_in_mem
-        self.preprocessed_data_on_disk = cfg_data.preprocessed_data_on_disk
-        self.targets = pd.read_csv(os.path.abspath(target_file), sep=cfg_data.file_sep)
-        if cfg_transforms.scale_output:
+        if self.is_eval_set:
+            target_file = args.train_targets
+        else:
+            target_file = args.val_targets
+        self.allowed_views = args.allowed_views
+        self.data_in_mem = args.data_in_mem
+        self.preprocessed_data_on_disk = args.preprocessed_data_on_disk
+        self.targets = pd.read_csv(os.path.abspath(target_file), sep=args.file_sep)
+        if args.scale_output:
             self.targets['target'] = self.targets['target'].apply(lambda x: x / 100)
         self.unique_exams = self.targets.drop_duplicates('us_id')[['us_id', 'target']]
-        self.data_aug_img = data_augmentations.DataAugmentations(cfg_transforms, cfg_augmentations.img)
-        self.data_aug_flow = data_augmentations.DataAugmentations(cfg_transforms, cfg_augmentations.flow)
-        self.base_folder_img = cfg_data.data_folder_img
-        self.base_folder_flow = cfg_data.data_folder_flow
-        if cfg_data.only_use_complete_exams:
+        self.data_aug = data_augmentations.DataAugmentations(args, self.is_eval_set)
+        self.base_folder_img = args.data_folder_img
+        self.base_folder_flow = args.data_folder_flow
+        if args.only_use_complete_exams:
             self.filter_incomplete_exams()
         if self.is_eval_set:
             self.targets_combinations = self.generate_all_combinations()
         if self.data_in_mem:
             self.load_data_into_mem()
         if self.preprocessed_data_on_disk:
-            self.temp_folder_img = cfg_data.temp_folder_img
-            self.temp_folder_flow = cfg_data.temp_folder_flow
+            self.temp_folder_img = args.temp_folder_img
+            self.temp_folder_flow = args.temp_folder_flow
             # Turn of the flag to enable transforms while saving to disk
             self.preprocessed_data_on_disk = False
             self.load_data_to_disk()
@@ -71,10 +74,10 @@ class MultiStreamDataset(torch.utils.data.Dataset):
                     else:
                         row = self.data_frame[(self.data_frame['us_id'] == exam) & (self.data_frame['view'] == view) & (self.data_frame['iid'] == iid)]
                         img = row['img']
-                        img = self.data_aug_img.transform_values(img).transpose(3, 0, 1, 2)
+                        img = self.data_aug.transform_values(img).transpose(3, 0, 1, 2)
                         data_list.append(img)
                         flow = row['flow']
-                        flow = self.data_aug_flow.transform_values(flow).transpose(3, 0, 1, 2)
+                        flow = self.data_aug.transform_values(flow).transpose(3, 0, 1, 2)
                         data_list.append(flow)
             else:
                 df = self.targets_combinations.iloc[index]
@@ -92,9 +95,9 @@ class MultiStreamDataset(torch.utils.data.Dataset):
                         file_img = df['filename_img_' + str(view)]
                         file_flow = df['filename_flow_' + str(view)]
                         img, flow, _, _, _, _ = self.read_image_data(tuple((exam, 0, 0, fps, hr, file_img, file_flow, target)))
-                        img = self.data_aug_img.transform_values(img).transpose(3, 0, 1, 2)
+                        img = self.data_aug.transform_values(img).transpose(3, 0, 1, 2)
                         data_list.append(img)
-                        flow = self.data_aug_flow.transform_values(flow).transpose(3, 0, 1, 2)
+                        flow = self.data_aug.transform_values(flow).transpose(3, 0, 1, 2)
                         data_list.append(flow)
         else:
             exam = self.unique_exams.iloc[index].us_id
@@ -107,10 +110,10 @@ class MultiStreamDataset(torch.utils.data.Dataset):
                         rndm_indx = random.choice(all_exam_indx)
                         row = self.data_frame.iloc[rndm_indx]
                         img = row['img']
-                        img = self.data_aug_img.transform_values(img).transpose(3, 0, 1, 2)
+                        img = self.data_aug.transform_values(img).transpose(3, 0, 1, 2)
                         data_list.append(img)
                         flow = row['flow']
-                        flow = self.data_aug_flow.transform_values(flow).transpose(3, 0, 1, 2)
+                        flow = self.data_aug.transform_values(flow).transpose(3, 0, 1, 2)
                         data_list.append(flow)
                     else:
                         img, flow = self.generate_dummy_data()
@@ -123,9 +126,9 @@ class MultiStreamDataset(torch.utils.data.Dataset):
                     if len(all_exam_indx) > 0:
                         rndm_indx = random.choice(all_exam_indx)
                         img, flow, _, _, _, _ = self.read_image_data(tuple(df.iloc[rndm_indx]))
-                        img = self.data_aug_img.transform_values(img).transpose(3, 0, 1, 2)
+                        img = self.data_aug.transform_values(img).transpose(3, 0, 1, 2)
                         data_list.append(img)
-                        flow = self.data_aug_flow.transform_values(flow).transpose(3, 0, 1, 2)
+                        flow = self.data_aug.transform_values(flow).transpose(3, 0, 1, 2)
                         data_list.append(flow)
                     else:
                         img, flow = self.generate_dummy_data()
@@ -192,8 +195,8 @@ class MultiStreamDataset(torch.utils.data.Dataset):
             if flow is None:
                 raise ValueError("Flow is None")
             if not self.preprocessed_data_on_disk:
-                img = self.data_aug_img.transform_size(img, fps, hr)
-                flow = self.data_aug_flow.transform_size(flow, fps, hr)
+                img = self.data_aug.transform_size(img, fps, hr)
+                flow = self.data_aug.transform_size(flow, fps, hr)
             return img, flow, target, uid, iid, view
         except Exception as e:
             print("Failed to get item for img file: {} and flow file: {} with exception: {}".format(file_img, file_flow, e))
@@ -257,10 +260,10 @@ class MultiStreamDataset(torch.utils.data.Dataset):
         return pd.DataFrame(all_generated_combinations)
 
     def generate_dummy_data(self):
-        img = np.zeros((1, self.data_aug_img.transforms.target_length,
-                        self.data_aug_img.transforms.target_height,
-                        self.data_aug_img.transforms.target_width), dtype=np.float32)
-        flow = np.zeros((2, self.data_aug_flow.transforms.target_length,
-                         self.data_aug_flow.transforms.target_height,
-                         self.data_aug_flow.transforms.target_width), dtype=np.float32)
+        img = np.zeros((1, self.data_aug.transforms.target_length,
+                        self.data_aug.transforms.target_height,
+                        self.data_aug.transforms.target_width), dtype=np.float32)
+        flow = np.zeros((2, self.data_aug.transforms.target_length,
+                         self.data_aug.transforms.target_height,
+                         self.data_aug.transforms.target_width), dtype=np.float32)
         return img, flow
