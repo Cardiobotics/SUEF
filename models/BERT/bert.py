@@ -59,7 +59,7 @@ class BERT(nn.Module):
         # nn.init.xavier_normal_(self.transformer_blocks[0].feed_forward.w_2.weight, gain = 1/(0.425) ** 0.5)
         # nn.init.xavier_normal_(self.transformer_blocks[0].feed_forward.w_1.weight, gain = 1)
 
-    @autocast(enabled=False)
+    
     def forward(self, input_vectors):
         # attention masking for padded token
         # torch.ByteTensor([batch_size, 1, seq_len, seq_len)
@@ -136,7 +136,7 @@ class BERT2(nn.Module):
                 module.bias.data.zero_()
                 module.weight.data.fill_(1.0)
 
-    @autocast(enabled=False)
+    
     def forward(self, input_vectors):
         # attention masking for padded token
         # torch.ByteTensor([batch_size, 1, seq_len, seq_len)
@@ -199,7 +199,7 @@ class BERT3(nn.Module):
         self.transformer_blocks = nn.ModuleList(
             [TransformerBlock(hidden, attn_heads, self.feed_forward_hidden, dropout) for _ in range(n_layers)])
 
-    @autocast(enabled=False)
+    
     def forward(self, input_vectors):
         # attention masking for padded token
         # torch.ByteTensor([batch_size, 1, seq_len, seq_len)
@@ -274,7 +274,7 @@ class BERT4(nn.Module):
                 module.bias.data.zero_()
                 module.weight.data.fill_(1.0)
 
-    @autocast(enabled=False)
+    
     def forward(self, input_vectors):
         # attention masking for padded token
         # torch.ByteTensor([batch_size, 1, seq_len, seq_len)
@@ -339,7 +339,7 @@ class BERT5(nn.Module):
         self.transformer_blocks = nn.ModuleList(
             [TransformerBlock(hidden, attn_heads, self.feed_forward_hidden, dropout) for _ in range(n_layers)])
 
-    @autocast(enabled=False)
+    
     def forward(self, input_vectors):
         # attention masking for padded token
         # torch.ByteTensor([batch_size, 1, seq_len, seq_len)
@@ -415,7 +415,7 @@ class BERT6(nn.Module):
                 module.bias.data.zero_()
                 module.weight.data.fill_(1.0)
 
-    @autocast(enabled=False)
+    
     def forward(self, input_vectors):
         # attention masking for padded token
         # torch.ByteTensor([batch_size, 1, seq_len, seq_len)
@@ -484,7 +484,7 @@ class BERT7(nn.Module):
         self.transformer_blocks = nn.ModuleList(
             [TransformerBlock(hidden, attn_heads, self.feed_forward_hidden, dropout) for _ in range(n_layers)])
 
-    @autocast(enabled=False)
+    
     def forward(self, input_vectors):
         # attention masking for padded token
         # torch.ByteTensor([batch_size, 1, seq_len, seq_len)
@@ -561,7 +561,7 @@ class BERT5_BOTH(nn.Module):
         self.transformer_blocks = nn.ModuleList(
             [TransformerBlock2(hidden, attn_heads, self.feed_forward_hidden, dropout) for _ in range(n_layers)])
 
-    @autocast(enabled=False)
+    
     def forward(self, input_vectors_rgb, input_vectors_flow):
         # attention masking for padded token
         # torch.ByteTensor([batch_size, 1, seq_len, seq_len)

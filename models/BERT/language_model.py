@@ -20,7 +20,6 @@ class BERTLM(nn.Module):
         self.next_sentence = NextSentencePrediction(self.bert.hidden)
         self.mask_lm = MaskedLanguageModel(self.bert.hidden, vocab_size)
 
-    @autocast(enabled=False)
     def forward(self, x, segment_label):
         x = self.bert(x, segment_label)
         return self.next_sentence(x), self.mask_lm(x)
@@ -39,7 +38,6 @@ class NextSentencePrediction(nn.Module):
         self.linear = nn.Linear(hidden, 2)
         self.softmax = nn.LogSoftmax(dim=-1)
 
-    @autocast(enabled=False)
     def forward(self, x):
         return self.softmax(self.linear(x[:, 0]))
 
@@ -59,6 +57,5 @@ class MaskedLanguageModel(nn.Module):
         self.linear = nn.Linear(hidden, vocab_size)
         self.softmax = nn.LogSoftmax(dim=-1)
 
-    @autocast(enabled=False)
     def forward(self, x):
         return self.softmax(self.linear(x))

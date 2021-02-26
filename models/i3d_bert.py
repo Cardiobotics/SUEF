@@ -35,7 +35,6 @@ class rgb_I3D64f(nn.Module):
         torch.nn.init.xavier_uniform_(self.fc_action.weight)
         self.fc_action.bias.data.zero_()
 
-    @autocast(enabled=False)
     def forward(self, x):
         x = self.features(x)
         x = self.avgpool(x)
@@ -61,7 +60,6 @@ class flow_I3D64f(nn.Module):
         torch.nn.init.xavier_uniform_(self.fc_action.weight)
         self.fc_action.bias.data.zero_()
 
-    @autocast(enabled=False)
     def forward(self, x):
         x = self.features(x)
         x = self.avgpool(x)
@@ -87,7 +85,6 @@ class rgb_resnet50I3D64f(nn.Module):
         torch.nn.init.xavier_uniform_(self.fc_action.weight)
         self.fc_action.bias.data.zero_()
 
-    @autocast(enabled=False)
     def forward(self, x):
         x = self.features(x)
         x = self.avgpool(x)
@@ -121,7 +118,6 @@ class rgb_I3D64f_bert2(nn.Module):
         torch.nn.init.xavier_uniform_(self.fc_action.weight)
         self.fc_action.bias.data.zero_()
 
-    @autocast(enabled=False)
     def forward(self, x):
         x = self.features(x)
         x = self.avgpool(x)
@@ -162,7 +158,6 @@ class flow_I3D64f_bert2(nn.Module):
         torch.nn.init.xavier_uniform_(self.fc_action.weight)
         self.fc_action.bias.data.zero_()
 
-    @autocast(enabled=False)
     def forward(self, x):
         x = self.features(x)
         x = self.avgpool(x)
@@ -207,7 +202,6 @@ class rgb_I3D64f_bert2_FRMB(nn.Module):
         torch.nn.init.xavier_uniform_(self.fc_action.weight)
         self.fc_action.bias.data.zero_()
 
-    @autocast(enabled=False)
     def forward(self, x):
         x = self.features(x)
         x = self.avgpool(x)
@@ -254,7 +248,6 @@ class flow_I3D64f_bert2_FRMB(nn.Module):
         torch.nn.init.xavier_uniform_(self.fc_action.weight)
         self.fc_action.bias.data.zero_()
 
-    @autocast(enabled=False)
     def forward(self, x):
         x = self.features(x)
         x = self.avgpool(x)
@@ -301,7 +294,6 @@ class rgb_I3D64f_bert2_FRAB(nn.Module):
         torch.nn.init.xavier_uniform_(self.fc_action.weight)
         self.fc_action.bias.data.zero_()
 
-    @autocast(enabled=False)
     def forward(self, x):
         x = self.features(x)
         x = self.mapper(x)
@@ -347,7 +339,6 @@ class flow_I3D64f_bert2_FRAB(nn.Module):
         torch.nn.init.xavier_uniform_(self.fc_action.weight)
         self.fc_action.bias.data.zero_()
 
-    @autocast(enabled=False)
     def forward(self, x):
         x = self.features(x)
         x = self.mapper(x)
@@ -373,7 +364,6 @@ class MaxPool3dSamePadding(nn.MaxPool3d):
         else:
             return max(self.kernel_size[dim] - (s % self.stride[dim]), 0)
 
-    @autocast(enabled=False)
     def forward(self, x):
         # compute 'same' padding
         (batch, channel, t, h, w) = x.size()
@@ -442,7 +432,6 @@ class Unit3D(nn.Module):
         else:
             return max(self._kernel_shape[dim] - (s % self._stride[dim]), 0)
 
-    @autocast(enabled=False)
     def forward(self, x):
         # compute 'same' padding
         (batch, channel, t, h, w) = x.size()
@@ -497,7 +486,6 @@ class InceptionModule(nn.Module):
                           name=name + '/Branch_3/Conv3d_0b_1x1')
         self.name = name
 
-    @autocast(enabled=False)
     def forward(self, x):
         b0 = self.b0(x)
         b1 = self.b1b(self.b1a(x))
@@ -677,7 +665,6 @@ class InceptionI3d(nn.Module):
         for k in self.end_points.keys():
             self.add_module(k, self.end_points[k])
 
-    @autocast(enabled=False)
     def forward(self, x):
         for end_point in self.VALID_ENDPOINTS:
             if end_point in self.end_points:

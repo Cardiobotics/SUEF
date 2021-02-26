@@ -1,0 +1,37 @@
+{
+  "train_batch_size": 16,
+  "optimizer": {
+    "type": "Adam",
+    "params": {
+      "lr": 0.001,
+      "eps": 1e-8,
+      "weight_decay": 0.0001,
+      "adam_w_mode": true
+    }
+  },
+  "scheduler": {
+    "type": "OneCycle",
+    "params": {
+      "cycle_first_step_size": 1000,
+      "cycle_first_stair_count": 500,
+      "cycle_second_step_size": 1000,
+      "cycle_second_stair_count": 500,
+      "decay_step_size": 1000,
+      "cycle_min_lr": 0.0001,
+      "cycle_max_lr": 0.0010,
+      "decay_lr_rate": 0.001,
+      "cycle_min_mom": 0.85,
+      "cycle_max_mom": 0.99,
+      "decay_mom_rate": 0.0
+    }
+  },
+  "fp16": {
+    "enabled": true
+  },
+  "gradient_clipping": 1,
+  "zero_optimization": {
+    "stage": 2,
+    "cpu_offload": false
+  }
+
+}

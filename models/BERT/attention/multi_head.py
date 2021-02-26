@@ -23,7 +23,7 @@ class MultiHeadedAttention(nn.Module):
 
         self.dropout = nn.Dropout(p=dropout)
 
-    @autocast(enabled=False)
+    
     def forward(self, query, key, value, mask=None):
         batch_size = query.size(0)
 
@@ -61,7 +61,7 @@ class MultiHeadedAttention2(nn.Module):
 
         self.dropout = nn.Dropout(p=dropout)
 
-    @autocast(enabled=False)
+    
     def forward(self, input_rgb, input_flow, mask=None):
         batch_size = input_rgb.size(0)
 

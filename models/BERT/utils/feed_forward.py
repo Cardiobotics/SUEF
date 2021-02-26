@@ -14,6 +14,6 @@ class PositionwiseFeedForward(nn.Module):
         self.dropout = nn.Dropout(dropout)
         #self.activation = GELU()
 
-    @autocast(enabled=False)
+    
     def forward(self, x):
         return self.w_2(self.dropout(F.gelu(self.w_1(x))))

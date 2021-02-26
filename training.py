@@ -9,9 +9,10 @@ from hinge_loss import HingeLossRegression
 import os
 import numpy as np
 import pandas as pd
+import deepspeed
 
 
-def train_and_validate(model, train_data_loader, val_data_loader, cfg, experiment=None):
+def train_and_validate(model, train_data_loader, val_data_loader, cfg, args, experiment=None):
 
     # Set visible devices
     parallel_model = cfg.performance.parallel_mode
@@ -41,6 +42,7 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
         model.Linear_layer.weight.requires_grad = True
         model.Linear_layer.bias.requires_grad = True
 
+    '''
     # Create Criterion and Optimizer
     if cfg.optimizer.loss_function == 'hinge':
         # Set loss criterion
@@ -68,7 +70,9 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
         criterion = nn.CrossEntropyLoss(weight=weights, reduction='none')
         optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()),
                                       lr=cfg.optimizer.learning_rate, weight_decay=cfg.optimizer.weight_decay)
-
+    
+    
+    
     if parallel_model:
         print("Available GPUS: {}".format(torch.cuda.device_count()))
         model = nn.DataParallel(model)
@@ -77,7 +81,7 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
 
     # Initialize GradScaler for autocasting
     scaler = GradScaler(enabled=use_half_prec)
-
+    
     print('Model parameters: {}'.format(sum(p.numel() for p in model.parameters() if p.requires_grad)))
 
     mem_params = sum([param.nelement() * param.element_size() for param in model.parameters()])
@@ -89,10 +93,13 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
     use_scheduler = cfg.optimizer.use_scheduler
     if use_scheduler:
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=cfg.optimizer.s_patience, factor=cfg.optimizer.s_factor)
-
+    
     # Maximum value used for gradient clipping = max fp16/2
     gradient_clipping = cfg.performance.gradient_clipping
     max_norm = cfg.performance.gradient_clipping_max_norm
+    '''
+
+    model_engine, optimizer, _, scheduler = deepspeed.initialize(args=args, model=model, )
 
     # Set anomaly detection
     torch.autograd.set_detect_anomaly(cfg.performance.anomaly_detection)

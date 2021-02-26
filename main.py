@@ -9,6 +9,8 @@ from data.multi_stream_dataset import MultiStreamDataset
 from omegaconf import DictConfig
 import logging
 import os
+import argparse
+import json
 
 logging.basicConfig(level=logging.INFO)
 logging.getLogger('numexpr').setLevel(logging.WARNING)
@@ -16,6 +18,14 @@ logging.getLogger('numexpr').setLevel(logging.WARNING)
 
 @hydra.main(config_path="cfg", config_name="config")
 def main(cfg: DictConfig) -> None:
+
+    parser = argparse.ArgumentParser('Configuration for deepspeed')
+    parser.add_argument('--deepspeed_config', type=str, default='deepspeed_config.json',
+                        help='The full path to the deepspeed config')
+
+    args = parser.parse_args()
+    with open(args.deepspeed_config) as f:
+        deepspeed_cfg = json.load(f)
 
     assert cfg.model.name in ['ccnn', 'resnext', 'i3d', 'i3d_bert', 'i3d_bert_2stream']
     assert cfg.data.type in ['img', 'flow', 'multi-stream']
@@ -119,12 +129,12 @@ def main(cfg: DictConfig) -> None:
 
     train_data_set, val_data_set = create_data_sets(cfg)
 
-    train_data_loader, val_data_loader = create_data_loaders(cfg, train_data_set, val_data_set)
+    train_data_loader, val_data_loader = create_data_loaders(cfg, deepspeed_cfg['train_batch_size'], train_data_set, val_data_set)
 
     experiment = None
     if cfg.logging.logging_enabled:
         neptune.init(cfg.logging.project_name)
-        experiment_params = {**dict(cfg.data_loader), **dict(cfg.transforms), **dict(cfg.augmentations),
+        experiment_params = {**deepspeed_cfg, **dict(cfg.data_loader), **dict(**cfg.transforms), **dict(**cfg.augmentations),
                              **dict(cfg.performance), **dict(cfg.training), **dict(cfg.optimizer), **dict(cfg.model),
                              **dict(cfg.evaluation), 'data_stream': cfg.data.type, 'view': cfg.data.name,
                              'train_dataset_size': len(train_data_loader.dataset),
@@ -134,17 +144,17 @@ def main(cfg: DictConfig) -> None:
     if not os.path.exists(cfg.training.checkpoint_save_path):
         os.makedirs(cfg.training.checkpoint_save_path)
 
-    train_and_validate(model, train_data_loader, val_data_loader, cfg, experiment=experiment)
+    train_and_validate(model, train_data_loader, val_data_loader, cfg, args, experiment=experiment)
 
 
-def create_data_loaders(cfg, train_d_set, val_d_set):
+def create_data_loaders(cfg, train_batch_size, train_d_set, val_d_set):
     if cfg.data_loader.weighted_sampler:
         train_d_size = len(train_d_set)
         weights = [1.0] * train_d_size
         sampler = WeightedRandomSampler(weights=weights, num_samples=train_d_size, replacement=True)
     else:
         sampler = RandomSampler(train_d_set)
-    train_data_loader = DataLoader(train_d_set, batch_size=cfg.data_loader.batch_size_train,
+    train_data_loader = DataLoader(train_d_set, batch_size=train_batch_size,
                                    num_workers=cfg.data_loader.n_workers, drop_last=cfg.data_loader.drop_last,
                                    sampler=sampler)
 
