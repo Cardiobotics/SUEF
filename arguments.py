@@ -16,6 +16,7 @@ def get_args():
     parser = add_training_config_args(parser)
     parser = add_validation_config_args(parser)
 
+    parser.add_argument('--local_rank', type=int, help='local rank passed from distributed launcher')
     parser = deepspeed.add_config_arguments(parser)
 
     args = parser.parse_args()

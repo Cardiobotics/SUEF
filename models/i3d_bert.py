@@ -221,7 +221,7 @@ class rgb_I3D64f_bert2_FRMB(nn.Module):
 
 # flow_I3D64f_bert2S
 class flow_I3D64f_bert2_FRMB(nn.Module):
-    def __init__(self, checkpoint, num_classes, num_channels, pre_n_classes, pre_n_channels):
+    def __init__(self, checkpoint, num_classes, num_channels):
         super(flow_I3D64f_bert2_FRMB, self).__init__()
         self.hidden_size = 512
         self.n_layers = 1

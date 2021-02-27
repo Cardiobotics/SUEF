@@ -23,8 +23,6 @@ class MultiStreamDataset(torch.utils.data.Dataset):
         self.data_in_mem = args.data_in_mem
         self.preprocessed_data_on_disk = args.preprocessed_data_on_disk
         self.targets = pd.read_csv(os.path.abspath(target_file), sep=args.file_sep)
-        if args.scale_output:
-            self.targets['target'] = self.targets['target'].apply(lambda x: x / 100)
         self.unique_exams = self.targets.drop_duplicates('us_id')[['us_id', 'target']]
         self.data_aug = data_augmentations.DataAugmentations(args, self.is_eval_set)
         self.base_folder_img = args.data_folder_img
