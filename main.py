@@ -20,6 +20,64 @@ def main():
     assert args.model_name in ['ccnn', 'resnext', 'i3d', 'i3d_bert']
     assert args.data_type in ['img', 'flow', 'multi-stream']
 
+    model, tags = select_and_load_model(args)
+
+    train_data_set, val_data_set = create_data_sets(args)
+
+    train_data_loader, val_data_loader = create_data_loaders(args, train_data_set, val_data_set)
+
+    experiment = None
+    if args.logging_enabled:
+        neptune.init(args.project_name)
+        experiment_params = {**vars(args), 'train_dataset_size': len(train_data_loader.dataset),
+                             'val_dataset_size': len(val_data_loader.dataset)}
+        experiment = neptune.create_experiment(name=args.model_name, params=experiment_params, tags=tags)
+
+    if args.checkpointing_enabled:
+        if not os.path.exists(args.checkpoint_save_path):
+            os.makedirs(args.checkpoint_save_path)
+
+    train_and_validate(model, train_data_loader, val_data_loader, args, experiment=experiment)
+
+
+def create_data_loaders(args, train_d_set, val_d_set):
+    if args.weighted_sampler:
+        train_d_size = len(train_d_set)
+        weights = [1.0] * train_d_size
+        sampler = WeightedRandomSampler(weights=weights, num_samples=train_d_size, replacement=True)
+    else:
+        sampler = RandomSampler(train_d_set)
+    train_data_loader = DataLoader(train_d_set, batch_size=args.train_batch_size, num_workers=args.n_workers,
+                                   drop_last=args.drop_last, sampler=sampler, pin_memory=args.pin_memory)
+
+    val_data_loader = DataLoader(val_d_set, batch_size=args.eval_batch_size, num_workers=args.n_workers,
+                                 drop_last=args.drop_last, pin_memory=args.pin_memory)
+
+    return train_data_loader, val_data_loader
+
+
+def create_data_sets(args):
+    if args.data_type == 'multi-stream':
+        dataset_c = MultiStreamDataset
+    else:
+        dataset_c = NPYDataset
+    # Create DataLoaders for training and validation
+    train_d_set = dataset_c(args, is_eval_set=False)
+    print("Training dataset size: {}".format(len(train_d_set)))
+
+    val_d_set = dataset_c(args, is_eval_set=True)
+    print("Validation dataset size: {}".format(len(val_d_set)))
+
+    return train_d_set, val_d_set
+
+
+def create_two_stream_models(args, checkpoint_img, checkpoint_flow):
+    model_img = i3d_bert.rgb_I3D64f_bert2_FRMB(checkpoint_img, args.n_outputs, args.n_input_channels_img)
+    model_flow = i3d_bert.flow_I3D64f_bert2_FRMB(checkpoint_flow, args.n_outputs, args.n_input_channels_flow,)
+    return model_img, model_flow
+
+def select_and_load_model(args):
+
     tags = []
 
     if args.model_name == 'ccnn':
@@ -99,58 +157,7 @@ def main():
                         model_dict[m_flow_name] = model_flow
                     model = multi_stream.MultiStream(model_dict, args.n_outputs)
 
-    train_data_set, val_data_set = create_data_sets(args)
-
-    train_data_loader, val_data_loader = create_data_loaders(args, train_data_set, val_data_set)
-
-    experiment = None
-    if args.logging_enabled:
-        neptune.init(args.project_name)
-        experiment_params = {**vars(args), 'train_dataset_size': len(train_data_loader.dataset),
-                             'val_dataset_size': len(val_data_loader.dataset)}
-        experiment = neptune.create_experiment(name=args.model_name, params=experiment_params, tags=tags)
-
-    if not os.path.exists(args.checkpoint_save_path):
-        os.makedirs(args.checkpoint_save_path)
-
-    train_and_validate(model, train_data_loader, val_data_loader, args, experiment=experiment)
-
-
-def create_data_loaders(args, train_d_set, val_d_set):
-    if args.weighted_sampler:
-        train_d_size = len(train_d_set)
-        weights = [1.0] * train_d_size
-        sampler = WeightedRandomSampler(weights=weights, num_samples=train_d_size, replacement=True)
-    else:
-        sampler = RandomSampler(train_d_set)
-    train_data_loader = DataLoader(train_d_set, batch_size=args.train_batch_size, num_workers=args.n_workers,
-                                   drop_last=args.drop_last, sampler=sampler, pin_memory=args.pin_memory)
-
-    val_data_loader = DataLoader(val_d_set, batch_size=args.eval_batch_size, num_workers=args.n_workers,
-                                 drop_last=args.drop_last, pin_memory=args.pin_memory)
-
-    return train_data_loader, val_data_loader
-
-
-def create_data_sets(args):
-    if args.data_type == 'multi-stream':
-        dataset_c = MultiStreamDataset
-    else:
-        dataset_c = NPYDataset
-    # Create DataLoaders for training and validation
-    train_d_set = dataset_c(args, is_eval_set=False)
-    print("Training dataset size: {}".format(len(train_d_set)))
-
-    val_d_set = dataset_c(args, is_eval_set=True)
-    print("Validation dataset size: {}".format(len(val_d_set)))
-
-    return train_d_set, val_d_set
-
-
-def create_two_stream_models(args, checkpoint_img, checkpoint_flow):
-    model_img = i3d_bert.rgb_I3D64f_bert2_FRMB(checkpoint_img, args.n_outputs, args.n_input_channels_img)
-    model_flow = i3d_bert.flow_I3D64f_bert2_FRMB(checkpoint_flow, args.n_outputs, args.n_input_channels_flow,)
-    return model_img, model_flow
+    return model, tags
 
 
 if __name__ == "__main__":

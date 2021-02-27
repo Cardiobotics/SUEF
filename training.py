@@ -12,10 +12,9 @@ import pandas as pd
 import deepspeed
 
 
-def train_and_validate(model, train_data_loader, val_data_loader, cfg, args, experiment=None):
+def train_and_validate(model, train_data_loader, val_data_loader, args, experiment=None):
 
     # Set visible devices
-    parallel_model = cfg.performance.parallel_mode
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     # Set cuda
     cuda_available = torch.cuda.is_available()
@@ -27,36 +26,31 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, args, exp
     model.to(device)
 
     # CUDNN Auto-tuner. Use True when input size and model is static
-    torch.backends.cudnn.benchmark = cfg.performance.cuddn_auto_tuner
+    torch.backends.cudnn.benchmark = args.cuddn_auto_tuner
 
-    if cfg.model.n_classes > 1:
+    if args.n_outputs > 1:
         metric_name = 'Accuracy'
         goal_type = 'classification'
     else:
         metric_name = 'R2'
         goal_type = 'regression'
 
-    if cfg.training.freeze_lower:
+    data_name = str(len(args.allowed_views)) + '-Stream'
+
+    if args.freeze_lower:
         for p in model.parameters():
             p.requires_grad = False
         model.Linear_layer.weight.requires_grad = True
         model.Linear_layer.bias.requires_grad = True
 
-    '''
     # Create Criterion and Optimizer
-    if cfg.optimizer.loss_function == 'hinge':
-        # Set loss criterion
-        criterion = HingeLossRegression(cfg.optimizer.loss_epsilon, reduction=None)
-        # Hinge loss is dependent on L2 regularization so we cannot use AdamW
-        optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()),
-                                     lr=cfg.optimizer.learning_rate, weight_decay=cfg.optimizer.weight_decay)
-    elif cfg.optimizer.loss_function == 'mse':
+    if goal_type == 'regression':
         # Set loss criterion
         criterion = nn.MSELoss(reduction='none')
         # Set optimizer
-        optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()),
-                                      lr=cfg.optimizer.learning_rate, weight_decay=cfg.optimizer.weight_decay)
-    elif cfg.optimizer.loss_function == 'cross-entropy':
+        #optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()),
+                                      #lr=cfg.optimizer.learning_rate, weight_decay=cfg.optimizer.weight_decay)
+    elif goal_type == 'classification':
         # Get counts for each class
         # Instantiate class counts to 1 instead of 0 to prevent division by zero in case data is missing
         class_counts = np.array(cfg.model.n_classes*[1])
@@ -68,27 +62,29 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, args, exp
         weights = weights / weights.sum()
         weights = torch.FloatTensor(weights).cuda()
         criterion = nn.CrossEntropyLoss(weight=weights, reduction='none')
-        optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()),
-                                      lr=cfg.optimizer.learning_rate, weight_decay=cfg.optimizer.weight_decay)
+        #optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()),
+                                      #lr=cfg.optimizer.learning_rate, weight_decay=cfg.optimizer.weight_decay)
     
     
-    
+    '''
     if parallel_model:
         print("Available GPUS: {}".format(torch.cuda.device_count()))
         model = nn.DataParallel(model)
 
     use_half_prec = cfg.performance.half_precision
-
+    
     # Initialize GradScaler for autocasting
     scaler = GradScaler(enabled=use_half_prec)
-    
-    print('Model parameters: {}'.format(sum(p.numel() for p in model.parameters() if p.requires_grad)))
+    '''
+    parameters = filter(lambda p: p.requires_grad, model.parameters())
+    print('Model parameters: {}'.format(sum(p.numel() for p in parameters)))
 
     mem_params = sum([param.nelement() * param.element_size() for param in model.parameters()])
     mem_buffs = sum([buf.nelement() * buf.element_size() for buf in model.buffers()])
     mem = mem_params + mem_buffs  # in bytes
     print('Model memory size: {}'.format(mem))
 
+    '''
     # Initialize scheduler
     use_scheduler = cfg.optimizer.use_scheduler
     if use_scheduler:
@@ -99,16 +95,16 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, args, exp
     max_norm = cfg.performance.gradient_clipping_max_norm
     '''
 
-    model_engine, optimizer, _, scheduler = deepspeed.initialize(args=args, model=model, )
+    model_engine, optimizer, _, scheduler = deepspeed.initialize(args=args, model=model, model_parameters=parameters)
 
     # Set anomaly detection
-    torch.autograd.set_detect_anomaly(cfg.performance.anomaly_detection)
+    torch.autograd.set_detect_anomaly(args.anomaly_detection)
 
     # Begin training
 
     max_val_metric = -10000
 
-    for i in range(cfg.training.epochs):
+    for i in range(args.epochs):
 
         start_time_epoch = time.time()
 
@@ -125,7 +121,7 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, args, exp
         end_time_t = time.time()
         # Training
 
-        model.train()
+        model_engine.train()
         for j, (inputs_t, targets_t, indexes_t, _) in enumerate(train_data_loader):
             # Update timer for data retrieval
             data_time_t.update(time.time() - end_time_t)
@@ -150,28 +146,18 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, args, exp
             # Do forward and backwards pass
 
             # Get model train output and train loss
-            with autocast(enabled=use_half_prec):
-                outputs_t = model(inputs_t)
-                loss_t = criterion(outputs_t, targets_t)
-                loss_mean_t = loss_t.mean()
-            if cfg.data_loader.weighted_sampler:
+            outputs_t = model_engine(inputs_t)
+            loss_t = criterion(outputs_t, targets_t)
+            loss_mean_t = loss_t.mean()
+            if args.weighted_sampler:
                 for index, loss in zip(indexes_t, loss_t.cpu().detach()):
                     loss_ratio = loss/loss_mean_t.cpu().detach()
                     loss_ratio = torch.clamp(loss_ratio, min=0.1, max=3)
                     train_data_loader.sampler.weights[index] = loss_ratio
-            # Backwards pass and step
-            optimizer.zero_grad()
 
-            # Backwards pass
-            scaler.scale(loss_mean_t).backward()
 
-            # Gradient Clipping
-            if gradient_clipping:
-                scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_value_(model.parameters(), max_norm)
-
-            scaler.step(optimizer)
-            scaler.update()
+            model_engine.backward(loss_mean_t)
+            model_engine.step()
 
             # Calculate and update metrics
             try:
@@ -213,7 +199,7 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, args, exp
               .format(i+1, batch_time=batch_time_t, data_time=data_time_t, loss=losses_t, metric_name=metric_name,
                       metric=metric_values_t))
 
-        if cfg.logging.logging_enabled:
+        if args.logging_enabled:
             log_train_metrics(experiment, losses_t.avg, metric_values_t.avg)
 
         # Validation
@@ -221,7 +207,7 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, args, exp
         # Only run validation every 10 epochs to save training time
         if i % 10 == 0:
             end_time_v = time.time()
-            model.eval()
+            model_engine.eval()
             all_result_v = np.zeros((0))
             all_target_v = np.zeros((0))
             all_uids_v = np.zeros((0))
@@ -243,16 +229,15 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, args, exp
 
                 with torch.no_grad():
                     # Get model validation output and validation loss
-                    with autocast(enabled=use_half_prec):
-                        outputs_v = model(inputs_v)
-                        loss_v = criterion(outputs_v, targets_v)
-                        loss_mean_v = loss_v.mean()
+                    outputs_v = model_engine(inputs_v)
+                    loss_v = criterion(outputs_v, targets_v)
+                    loss_mean_v = loss_v.mean()
 
                 # Update timer for batch
                 batch_time_v.update(time.time() - end_time_v)
 
                 # Update metrics
-                if cfg.evaluation.use_best_sample:
+                if args.all_view_combinations:
                     if goal_type == 'regression':
                         all_result_v = np.concatenate((all_result_v, outputs_v.squeeze(axis=1).cpu().detach().numpy()))
                         all_target_v = np.concatenate((all_target_v, targets_v.squeeze(axis=1).cpu().detach().numpy()))
@@ -285,7 +270,7 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, args, exp
 
                 end_time_v = time.time()
 
-            if cfg.evaluation.use_best_sample:
+            if args.all_view_combinations:
                 # As results are over all possible combinations of views in each examination
                 # each different combination needs to have a weight equal to its ratio.
                 val_data = np.array((all_uids_v, all_result_v, all_target_v, all_loss_v))
@@ -326,28 +311,28 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, args, exp
             if goal_type == 'regression':
                 print('Example targets: {} \n Example outputs: {}'.format(torch.squeeze(targets_v), torch.squeeze(outputs_v)))
             
-        if use_scheduler:
-            scheduler.step(loss_mean_v)
+        #if use_scheduler:
+            #scheduler.step(loss_mean_v)
 
-        if cfg.training.checkpointing_enabled and cfg.logging.logging_enabled:
+        if args.checkpointing_enabled and args.logging_enabled:
             if metric_v > max_val_metric:
-                checkpoint_name = cfg.training.checkpoint_save_path + cfg.model.name + '_' + cfg.data.type + '_'\
-                                  + cfg.data.name + '_exp_' + experiment.id + '.pth'
-                save_checkpoint(checkpoint_name, model, optimizer)
+                checkpoint_name = args.model_name + '_' + args.data_type + '_'\
+                                  + data_name + '_exp_' + experiment.id
+                save_checkpoint(args.checkpoint_save_path, checkpoint_name, model_engine)
                 max_val_metric = metric_v
-        elif cfg.training.checkpointing_enabled:
+        elif args.checkpointing_enabled:
             if metric_v > max_val_metric:
-                checkpoint_name = cfg.training.checkpoint_save_path + cfg.model.name + '_' + cfg.data.type + '_'\
-                                  + cfg.data.name + '_test' + '.pth'
-                save_checkpoint(checkpoint_name, model, optimizer)
+                checkpoint_name = args.model_name + '_' + args.data_type + '_'\
+                                  + data_name + '_test'
+                save_checkpoint(args.checkpoint_save_path, checkpoint_name, model_engine)
                 max_val_metric = metric_v
 
         if i % 10 == 0:
-            if cfg.logging.logging_enabled:
+            if args.logging_enabled:
                 log_val_metrics(experiment, loss_mean_v, metric_v, max_val_metric)
 
         epoch_time = time.time() - start_time_epoch
-        rem_epochs = cfg.training.epochs - (i+1)
+        rem_epochs = args.epochs - (i+1)
         rem_time = rem_epochs * epoch_time
         print('Epoch {} completed. Time to complete: {}. Estimated remaining time: {}'.format(i+1, epoch_time, format_time(rem_time)))
 
@@ -363,16 +348,8 @@ def log_val_metrics(experiment, v_loss, v_metric, best_v_metric):
     experiment.log_metric('best_val_r2', best_v_metric)
 
 
-def save_checkpoint(save_file_path, model, optimizer):
-    if hasattr(model, 'module'):
-        model_state_dict = model.module.state_dict()
-    else:
-        model_state_dict = model.state_dict()
-    save_states = {
-        'model': model_state_dict,
-        'optimizer': optimizer.state_dict(),
-    }
-    torch.save(save_states, save_file_path)
+def save_checkpoint(save_dir, save_file_name, model):
+    model.save_checkpoint(save_dir, save_file_name)
 
 
 def format_time(time_as_seconds):

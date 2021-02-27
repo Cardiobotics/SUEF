@@ -10,19 +10,11 @@
     }
   },
   "scheduler": {
-    "type": "OneCycle",
+    "type": "WarmupLR",
     "params": {
-      "cycle_first_step_size": 1000,
-      "cycle_first_stair_count": 500,
-      "cycle_second_step_size": 1000,
-      "cycle_second_stair_count": 500,
-      "decay_step_size": 1000,
-      "cycle_min_lr": 0.0001,
-      "cycle_max_lr": 0.0010,
-      "decay_lr_rate": 0.001,
-      "cycle_min_mom": 0.85,
-      "cycle_max_mom": 0.99,
-      "decay_mom_rate": 0.0
+      "warmup_min_lr": 0,
+      "warmup_max_lr": 0.001,
+      "warmup_num_steps": 1000
     }
   },
   "fp16": {
