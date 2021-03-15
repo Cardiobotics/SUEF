@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from utils.utils import AverageMeter
-from sklearn.metrics import r2_score, accuracy_score
+from sklearn.metrics import r2_score, accuracy_score, top_k_accuracy_score
 import time
 from torch.cuda.amp import GradScaler
 from torch.cuda.amp import autocast
@@ -89,6 +89,8 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
     use_scheduler = cfg.optimizer.use_scheduler
     if use_scheduler:
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=cfg.optimizer.s_patience, factor=cfg.optimizer.s_factor)
+        #scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=0.01, total_steps=len(train_data_loader))
+        #scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[5,150,350], gamma=0.1)
 
     # Maximum value used for gradient clipping = max fp16/2
     gradient_clipping = cfg.performance.gradient_clipping
@@ -114,6 +116,9 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
         data_time_v = AverageMeter()
         losses_v = AverageMeter()
         metric_values_v = AverageMeter()
+        if goal_type == 'classification':
+            top3_values_v = AverageMeter()
+            top5_values_v = AverageMeter()
 
         end_time_t = time.time()
         # Training
@@ -193,7 +198,6 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                       'Training {metric_name} Score: {metric.val:.3f} ({metric.avg:.3f}) \t'
                       .format(j+1, len(train_data_loader), i + 1, batch_time=batch_time_t, data_time=data_time_t,
                               loss=losses_t, metric_name=metric_name, metric=metric_values_t))
-
             # Reset end timer
             end_time_t = time.time()
         
@@ -215,7 +219,10 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
         if i % 10 == 0:
             end_time_v = time.time()
             model.eval()
-            all_result_v = np.zeros((0))
+            if goal_type == 'regression':
+                all_result_v = np.zeros((0))
+            else:
+                all_result_v = np.zeros((0,cfg.model.n_classes))
             all_target_v = np.zeros((0))
             all_uids_v = np.zeros((0))
             all_loss_v = np.zeros((0))
@@ -251,7 +258,7 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                         all_target_v = np.concatenate((all_target_v, targets_v.squeeze(axis=1).cpu().detach().numpy()))
                         all_loss_v = np.concatenate((all_loss_v, loss_v.cpu().squeeze(axis=1).detach().numpy()))
                     else:
-                        all_result_v = np.concatenate((all_result_v, np.argmax(outputs_v.cpu().detach().numpy(), 1)))
+                        all_result_v = np.concatenate((all_result_v, outputs_v.cpu().detach().numpy()))
                         all_target_v = np.concatenate((all_target_v, targets_v.cpu().detach().numpy()))
                         all_loss_v = np.concatenate((all_loss_v, loss_v.cpu().detach().numpy()))
                     all_uids_v = np.concatenate((all_uids_v, uids_v))
@@ -264,7 +271,11 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                     else:
                         predictions_v = np.argmax(metric_outputs_v, 1)
                         metric_v = accuracy_score(metric_targets_v, predictions_v)
+                        top3_v = top_k_accuracy_score(metric_targets_t, metric_outputs_t, k=3)
+                        top5_v = top_k_accuracy_score(metric_targets_t, metric_outputs_t, k=5)
                     metric_values_v.update(metric_v)
+                    top3_values_v.update(top3_v)
+                    top5_values_v.update(top5_v)
                     losses_v.update(loss_mean_v)
 
                     if k % 100 == 0:
@@ -272,20 +283,20 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                               'Validation Time: {batch_time.val:.3f} ({batch_time.avg:.3f}) \t '
                               'Validation Data Time: {data_time.val:.3f} ({data_time.avg:.3f}) \t '
                               'Validation Loss: {loss.val:.4f} ({loss.avg:.4f}) \t '
-                              'Validation {metric_name} Score: {metric.val:.3f} ({metric.avg:.3f}) \t'
+                              'Validation {metric_name} Top1: {metric.val:.3f} ({metric.avg:.3f}) Top3: {top3.val:.3f} ({top3.avg:.3f}) Top5: {top5.val:.3f} ({top5.avg:.3f})\t'
                               .format(k + 1, len(val_data_loader), i + 1, batch_time=batch_time_v, data_time=data_time_v,
-                                      loss=losses_v, metric_name=metric_name, metric=metric_values_v))
+                                      loss=losses_v, metric_name=metric_name, metric=metric_values_v, top3=top3_values_v, top5=top5_values_v))
 
                 end_time_v = time.time()
 
             if cfg.evaluation.use_best_sample:
                 # As results are over all possible combinations of views in each examination
                 # each different combination needs to have a weight equal to its ratio.
-                val_data = np.array((all_uids_v, all_result_v, all_target_v, all_loss_v))
+                val_data = np.array((all_uids_v, all_loss_v))
                 val_data = val_data.transpose(1, 0)
-                pd_val_data = pd.DataFrame(val_data, columns=['us_id', 'result', 'target', 'loss'])
-                pd_val_data[['result', 'target', 'loss']] = pd_val_data[['result', 'target', 'loss']].astype(np.float32)
-                val_ue = pd_val_data.drop_duplicates(subset='us_id')[['us_id', 'target']]
+                pd_val_data = pd.DataFrame(val_data, columns=['us_id', 'loss'])
+                pd_val_data['loss'] = pd_val_data['loss'].astype(np.float32)
+                val_ue = pd_val_data.drop_duplicates(subset='us_id')[['us_id', 'loss']]
                 all_mean_loss = []
                 for ue in val_ue.itertuples():
                     exam_results = pd_val_data[pd_val_data['us_id'] == ue.us_id]
@@ -297,13 +308,14 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                         pd_val_data.loc[indx, 'metric_weight'] = weight
                 np_loss = np.array(all_mean_loss, dtype=np.float32)
                 loss_mean_v = np_loss.mean()
-                targets = pd_val_data['target'].to_numpy()
-                results = pd_val_data['result'].to_numpy()
                 weights = pd_val_data['metric_weight'].to_numpy()
                 if goal_type == 'regression':
-                    metric_v = r2_score(targets, results, sample_weight=weights)
+                    metric_v = r2_score(all_target_v, all_result_v, sample_weight=weights)
                 else:
-                    metric_v = accuracy_score(targets.astype(np.int), results.astype(np.int), sample_weight=weights)
+                    top3_v = top_k_accuracy_score(all_target_v.astype(np.int), all_result_v, k=3, sample_weight=weights)
+                    top5_v = top_k_accuracy_score(all_target_v.astype(np.int), all_result_v, k=5, sample_weight=weights)
+                    predictions_v = np.argmax(all_result_v, 1)
+                    metric_v = accuracy_score(all_target_v.astype(np.int), predictions_v, sample_weight=weights)
             else:
                 loss_mean_v = losses_v.avg
                 metric_v = metric_values_v.avg
@@ -313,14 +325,15 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                   'Validation Time: {batch_time.avg:.3f} \t '
                   'Validation Data Time: {data_time.avg:.3f} \t '
                   'Validation Loss: {loss:.4f} \t '
-                  'Validation {metric_name} score: {metric:.3f} \t'
+                  'Validation {metric_name} Top1: {metric:.3f} Top3: {top3:.3f} Top5: {top5:.3f}\t'
                   .format(i+1, batch_time=batch_time_v, data_time=data_time_v, loss=loss_mean_v, metric_name=metric_name
-                          , metric=metric_v))
+                          , metric=metric_v, top3=top3_v, top5=top5_v))
             if goal_type == 'regression':
                 print('Example targets: {} \n Example outputs: {}'.format(torch.squeeze(targets_v), torch.squeeze(outputs_v)))
             
         if use_scheduler:
             scheduler.step(loss_mean_v)
+            #scheduler.step()
 
         if cfg.training.checkpointing_enabled and cfg.logging.logging_enabled:
             if metric_v > max_val_metric:
@@ -337,7 +350,10 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
 
         if i % 10 == 0:
             if cfg.logging.logging_enabled:
-                log_val_metrics(experiment, loss_mean_v, metric_v, max_val_metric)
+                if goal_type == 'regression':
+                    log_val_metrics(experiment, loss_mean_v, metric_v, max_val_metric)
+                else:
+                    log_val_classification(experiment, loss_mean_v, metric_v, max_val_metric, top3_v, top5_v)
 
         epoch_time = time.time() - start_time_epoch
         rem_epochs = cfg.training.epochs - (i+1)
@@ -349,12 +365,24 @@ def log_train_metrics(experiment, t_loss, t_metric):
     experiment.log_metric('training_loss', t_loss)
     experiment.log_metric('training_r2', t_metric)
 
+def log_train_classification(experiment, t_loss, t_metric, top3, top5):
+    experiment.log_metric('training_loss', t_loss)
+    experiment.log_metric('training_top1_accuracy', t_metric)
+    experiment.log_metric('training_top3_accuracy', top3)
+    experiment.log_metric('training_top5_accuracy', top5)
+
 
 def log_val_metrics(experiment, v_loss, v_metric, best_v_metric):
     experiment.log_metric('validation_loss', v_loss)
     experiment.log_metric('validation_r2', v_metric)
     experiment.log_metric('best_val_r2', best_v_metric)
 
+def log_val_classification(experiment, loss, metric, max_val_metric, top3, top5):
+    experiment.log_metric('validation_loss', loss)
+    experiment.log_metric('validation_top1_accuracy', metric)
+    experiment.log_metric('validation_top3_accuracy', top3)
+    experiment.log_metric('validation_top5_accuracy', top5)
+    experiment.log_metric('best_val_top1_accuracy', max_val_metric)
 
 def save_checkpoint(save_file_path, model, optimizer):
     if hasattr(model, 'module'):

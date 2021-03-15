@@ -72,7 +72,7 @@ def main(cfg: DictConfig) -> None:
                 if cfg.model.shared_weights:
                     tags.append('shared-weights')
                     model_img, model_flow = create_two_stream_models(cfg, '', '')
-                    model = multi_stream.MultiStreamShared(model_img, model_flow, len(state_dict['Linear_layer.weight'][0]))
+                    model = multi_stream.MultiStreamShared(model_img, model_flow, len(state_dict['Linear_layer.weight'][0]), cfg.model.n_classes)
                     model.load_state_dict(state_dict)
                     if not len(state_dict['Linear_layer.weight'][0]) == len(cfg.data.allowed_views) * 2:
                         model.replace_fc(len(cfg.data.allowed_views) * 2)
@@ -146,10 +146,10 @@ def create_data_loaders(cfg, train_d_set, val_d_set):
         sampler = RandomSampler(train_d_set)
     train_data_loader = DataLoader(train_d_set, batch_size=cfg.data_loader.batch_size_train,
                                    num_workers=cfg.data_loader.n_workers, drop_last=cfg.data_loader.drop_last,
-                                   sampler=sampler)
+                                   sampler=sampler, pin_memory=True)
 
     val_data_loader = DataLoader(val_d_set, batch_size=cfg.data_loader.batch_size_eval,
-                                 num_workers=cfg.data_loader.n_workers, drop_last=cfg.data_loader.drop_last)
+                                 num_workers=cfg.data_loader.n_workers, drop_last=cfg.data_loader.drop_last, pin_memory=True)
 
     return train_data_loader, val_data_loader
 
