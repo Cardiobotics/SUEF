@@ -78,9 +78,6 @@ class MultiStreamShared(nn.Module):
     def replace_fc(self, num_models, n_classes):
         self.num_models = num_models
         self.n_classes = n_classes
-        # Replace internal fc layers
-        self._modules[self.model_flow_name].replace_logits(self.n_classes)
-        self._modules[self.model_img_name].replace_logits(self.n_classes)
         # Replace multistream fc layer
         self.fc_input_size = self.num_models * self.n_classes
         self.fc_name = 'Linear_layer'
