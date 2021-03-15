@@ -72,10 +72,10 @@ def main(cfg: DictConfig) -> None:
                 if cfg.model.shared_weights:
                     tags.append('shared-weights')
                     model_img, model_flow = create_two_stream_models(cfg, '', '')
-                    model = multi_stream.MultiStreamShared(model_img, model_flow, len(state_dict['Linear_layer.weight'][0]), cfg.model.n_classes)
+                    model = multi_stream.MultiStreamShared(model_img, model_flow, len(state_dict['Linear_layer.weight'][0]), cfg.model.pre_n_classes)
                     model.load_state_dict(state_dict)
-                    if not len(state_dict['Linear_layer.weight'][0]) == len(cfg.data.allowed_views) * 2:
-                        model.replace_fc(len(cfg.data.allowed_views) * 2)
+                    if not len(state_dict['Linear_layer.weight'][0]) == len(cfg.data.allowed_views) * 2 or not cfg.model.pre_n_classes == cfg.model.n_classes:
+                        model.replace_fc(len(cfg.data.allowed_views) * 2, cfg.model.n_classes)
                 else:
                     model_dict = {}
                     for view in cfg.data.allowed_views:
