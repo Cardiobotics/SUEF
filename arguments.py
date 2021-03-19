@@ -1,31 +1,20 @@
 import argparse
-import os
-import torch
-import deepspeed
-import json
 
 
 def get_args():
 
     parser = argparse.ArgumentParser()
     parser = add_model_config_args(parser)
+    parser = add_optimization_config_args(parser)
     parser = add_logging_config_args(parser)
     parser = add_data_config_args(parser)
     parser = add_transform_config_args(parser)
     parser = add_augment_config_args(parser)
+    parser = add_performance_config_args(parser)
     parser = add_training_config_args(parser)
     parser = add_validation_config_args(parser)
 
-    parser.add_argument('--local_rank', type=int, help='local rank passed from distributed launcher')
-    parser = deepspeed.add_config_arguments(parser)
-
     args = parser.parse_args()
-
-    with open(args.deepspeed_config) as f:
-        deepspeed_args = json.load(f)
-
-    for k in deepspeed_args.keys():
-        setattr(args, k, deepspeed_args.get(k))
 
     return args
 
@@ -57,6 +46,23 @@ def add_model_config_args(parser):
                        help='Number of input channels for image data type')
     group.add_argument('--n_input_channels_flow', type=int, default=2,
                        help='Number of input channels for flow data type')
+
+    return parser
+
+
+def add_optimization_config_args(parser):
+    group = parser.add_argument_group('optimization', 'Settings for optimzer and loss function')
+
+    group.add_argument('--learning_rate', type=float, default=1e-3, help='Learning rate for the optimizer')
+    group.add_argument('--weight_decay', type=float, default=1e-4, help='Weight decay (regularization) for the optimizer')
+    group.add_argument('--opt_epsilon', type=float, default=1e-8, help='Epsilon value for the optimizer')
+    group.add_argument('--optimizer', type=str, default='adamw', help='Optimizer type', choices=['adam', 'adamw', 'sgd'])
+    group.add_argument('--loss_function', type=str, default='mse', help='Loss function', choices=['mse', 'cross-entropy'])
+    group.add_argument('--loss_epsilon', type=float, default=1, help='Epsilon for loss function (Hinge only)')
+    group.add_argument('--scheduler', type='store_true', help='Enables the use of a learning rate scheduler')
+    group.add_argument('--scheduler_patience', type=int, default=10, help='Scheduler (ReduceLROnPlateau) patience')
+    group.add_argument('--scheduler_scale_factor', type=float, default=0.1, help='Scheduler (ReduceLROnPlateau) scale factor')
+
 
     return parser
 
@@ -99,7 +105,8 @@ def add_data_config_args(parser):
     group.add_argument('--data_folder_flow', type=str, required=True, help='Path to folder containing flow data')
 
     group.add_argument('--eval_batch_size', type=int, default=16, help='Batch size for validation data loader')
-    #Note that --train_batch_size is set inside deepspeed config
+    group.add_argument('--train_batch_size', type=int, default=16, help='Batch size for train data loader')
+
     group.add_argument('--n_workers', type=int, default=20, help='Number of workers used in DataLoader')
     group.add_argument('--drop_last', type=bool, default=True, help='When enabled, drops the last batch from DataLoader '
                                                                     'if not full-sized')
@@ -162,6 +169,17 @@ def add_augment_config_args(parser):
                        help='Width standard deviation for local intensity.')
     group.add_argument('--intensity_var', type=float, default=0.01, help='Local intensity shift variance.')
 
+    return parser
+
+
+def add_performance_config_args(parser):
+    group = parser.add_argument_group('performance', 'Performance settings')
+
+    group.add_argument('--local_rank', type=int, default=-1, help='Local rank of this process, passed from distributed launcher')
+    group.add_argument('--local_world_size', type=int, default=-1, help='World size of the current node, passed from distributed launcher')
+    group.add_argument('--cuddn_auto_tuner', type=bool, default=True, help='Enables the CUDDN benchmark in PyTorch')
+    group.add_argument('--anomaly_detection', type=bool, default=False, help='Enables PyTorch anomaly detection')
+    group.add_argument('--fp16', type='store_true', help='Enables mixed precision (FP16) where applicable')
 
     return parser
 
@@ -169,8 +187,6 @@ def add_augment_config_args(parser):
 def add_training_config_args(parser):
     group = parser.add_argument_group('training', 'Training settings')
 
-    group.add_argument('--cuddn_auto_tuner', type=bool, default=True, help='Enables the CUDDN benchmark in PyTorch')
-    group.add_argument('--anomaly_detection', type=bool, default=False, help='Enables PyTorch anomaly detection')
     group.add_argument('--epochs', type=int, default=500, help='Number of training epochs')
     group.add_argument('--checkpointing_enabled', type=bool, default=True, help='When enabled, the best model is '
                                                                                 'continuously saved to disk as a '
@@ -178,6 +194,9 @@ def add_training_config_args(parser):
     group.add_argument('--checkpoint_save_path', type=str, default='checkpoints/', help='Folder where the checkpoint'
                                                                                         ' should be saved')
     group.add_argument('--freeze_lower', type=bool, default=False, help='When enabled, all layers except last are frozen')
+    group.add_argument('--gradient_clipping', type='store_true', help='Enables gradient clipping')
+    group.add_argument('--grad_clip_max_val', type=float, default=1, help='The maximum value that gradients will be clipped to')
+
 
     return parser
 
@@ -190,6 +209,5 @@ def add_validation_config_args(parser):
                                                                                 ' validation and results for each '
                                                                                 'combination is weighted by the ratio of'
                                                                                 ' combinations in each examination')
+    group.add_argument('--epochs_per_validation', type=int, default=10, help='Number of training epochs between each validation pass')
     return parser
-
-args = get_args()
