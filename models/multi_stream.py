@@ -81,5 +81,5 @@ class MultiStreamShared(nn.Module):
         # Replace multistream fc layer
         self.fc_input_size = self.num_models * self.n_classes
         self.fc_name = 'Linear_layer'
-        fc_linear = nn.Linear(self.num_models, self.n_classes)
+        fc_linear = nn.Linear(self.fc_input_size, self.n_classes)
         self.add_module(self.fc_name, fc_linear)

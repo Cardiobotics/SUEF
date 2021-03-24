@@ -153,8 +153,11 @@ class DataAugmentations:
             time_crop = time.time()
             time_crop_diff = time_crop - time_rescale
             print("Image size after cropping: {}, Time to process: {}".format(img.shape, time_crop_diff))
+        assert not (self.transforms.loop_length and self.transforms.pad_length)
         if self.transforms.loop_length:
             img = self.t_loop_length(img)
+        if self.transforms.pad_length:
+            img = self.t_pad_length(img)
         if self.debug:
             time_loop = time.time()
             time_loop_diff = time_loop - time_crop
@@ -270,6 +273,18 @@ class DataAugmentations:
                             (int((self.transforms.target_width - img.shape[2])/2),
                              int((self.transforms.target_width - img.shape[2])/2)),
                             (0, 0))
+            img = np.pad(img, pad_width=pad_sequence, constant_values=self.black_val)
+        return img
+
+    def t_pad_length(self, img):
+        '''
+        Pads the length (end) of a sequence by adding black frames.
+        :param img: The input image with shape (L,H,W,C)
+        :return: The image with the new shape (self.transforms.target_length,H,W,C)
+        '''
+        diff = self.transforms.target_length - img.shape[0]
+        if diff > 0:
+            pad_sequence = ((0, diff), (0, 0), (0, 0), (0, 0))
             img = np.pad(img, pad_width=pad_sequence, constant_values=self.black_val)
         return img
 
