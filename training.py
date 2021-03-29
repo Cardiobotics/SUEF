@@ -5,7 +5,8 @@ from sklearn.metrics import r2_score, accuracy_score, top_k_accuracy_score
 import time
 from torch.cuda.amp import GradScaler
 from torch.cuda.amp import autocast
-from hinge_loss import HingeLossRegression
+from loss_functions.hinge_loss import HingeLossRegression
+from loss_functions.ordinal_regression import OrdinalRegressionAT, get_ORAT_labels
 import os
 import numpy as np
 import pandas as pd
@@ -28,13 +29,6 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
     # CUDNN Auto-tuner. Use True when input size and model is static
     torch.backends.cudnn.benchmark = cfg.performance.cuddn_auto_tuner
 
-    if cfg.model.n_classes > 1:
-        metric_name = 'Accuracy'
-        goal_type = 'classification'
-    else:
-        metric_name = 'R2'
-        goal_type = 'regression'
-
     if cfg.training.freeze_lower:
         for p in model.parameters():
             p.requires_grad = False
@@ -43,18 +37,24 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
 
     # Create Criterion and Optimizer
     if cfg.optimizer.loss_function == 'hinge':
+        metric_name = 'R2'
+        goal_type = 'regression'
         # Set loss criterion
         criterion = HingeLossRegression(cfg.optimizer.loss_epsilon, reduction=None)
         # Hinge loss is dependent on L2 regularization so we cannot use AdamW
         optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()),
                                      lr=cfg.optimizer.learning_rate, weight_decay=cfg.optimizer.weight_decay)
     elif cfg.optimizer.loss_function == 'mse':
+        metric_name = 'R2'
+        goal_type = 'regression'
         # Set loss criterion
         criterion = nn.MSELoss(reduction='none')
         # Set optimizer
         optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()),
                                       lr=cfg.optimizer.learning_rate, weight_decay=cfg.optimizer.weight_decay)
     elif cfg.optimizer.loss_function == 'cross-entropy':
+        metric_name = 'Accuracy'
+        goal_type = 'classification'
         # Get counts for each class
         # Instantiate class counts to 1 instead of 0 to prevent division by zero in case data is missing
         class_counts = np.array(cfg.model.n_classes*[1])
@@ -66,6 +66,23 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
         weights = weights / weights.sum()
         weights = torch.FloatTensor(weights).cuda()
         criterion = nn.CrossEntropyLoss(weight=weights, reduction='none')
+        optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()),
+                                      lr=cfg.optimizer.learning_rate, weight_decay=cfg.optimizer.weight_decay)
+
+    elif cfg.optimizer.loss_function == 'all-threshold':
+        metric_name = 'Accuracy'
+        goal_type = 'ordinal-regression'
+        # Get counts for each class
+        # Instantiate class counts to 1 instead of 0 to prevent division by zero in case data is missing
+        class_counts = np.array(len(train_data_loader.dataset.unique_exams['target'].unique())*[1])
+        for i in train_data_loader.dataset.unique_exams['target'].value_counts().index:
+            class_counts[i] = train_data_loader.dataset.unique_exams['target'].value_counts().loc[i]
+        # Calculate the inverse normalized ratio for each class
+        weights = class_counts / class_counts.sum()
+        weights = 1 / weights
+        weights = weights / weights.sum()
+        weights = torch.FloatTensor(weights).cuda()
+        criterion = OrdinalRegressionAT(sample_weights=weights, reduction=None)
         optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()),
                                       lr=cfg.optimizer.learning_rate, weight_decay=cfg.optimizer.weight_decay)
 
@@ -150,14 +167,17 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
             # Get model train output and train loss
             with autocast(enabled=use_half_prec):
                 outputs_t = model(inputs_t)
-                loss_t = criterion(outputs_t, targets_t)
+                if goal_type == 'ordinal-regression':
+                    loss_t = criterion(outputs_t, targets_t, model.module.thresholds)
+                else:
+                    loss_t = criterion(outputs_t, targets_t)
                 loss_mean_t = loss_t.mean()
             if cfg.data_loader.weighted_sampler:
                 for index, loss in zip(indexes_t, loss_t.cpu().detach()):
                     loss_ratio = loss/loss_mean_t.cpu().detach()
                     loss_ratio = torch.clamp(loss_ratio, min=0.1, max=3)
                     train_data_loader.sampler.weights[index] = loss_ratio
-            # Backwards pass and step
+            # Zero grads
             optimizer.zero_grad()
 
             # Backwards pass
@@ -168,9 +188,9 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                 scaler.unscale_(optimizer)
                 torch.nn.utils.clip_grad_value_(model.parameters(), max_norm)
 
+            # Step and update
             scaler.step(optimizer)
             scaler.update()
-
             # Calculate and update metrics
             try:
                 if not torch.isfinite(outputs_t).all():
@@ -179,9 +199,12 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                 metric_outputs_t = outputs_t.cpu().detach().numpy()
                 if goal_type == 'regression':
                     metric_t = r2_score(metric_targets_t, metric_outputs_t)
-                else:
+                elif goal_type == 'classification':
                     predictions_t = np.argmax(metric_outputs_t, 1)
                     metric_t = accuracy_score(metric_targets_t, predictions_t)
+                elif goal_type == 'ordinal-regression':
+                    labels_t = get_ORAT_labels(metric_outputs_t, model.module.thresholds)
+                    metric_t = accuracy_score(metric_targets_t, labels_t)
                 metric_values_t.update(metric_t)
                 losses_t.update(loss_mean_t)
             except ValueError as ve:
@@ -219,10 +242,10 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
         if i % 10 == 0:
             end_time_v = time.time()
             model.eval()
-            if goal_type == 'regression':
-                all_result_v = np.zeros((0))
+            if goal_type == 'classification':
+                all_result_v = np.zeros((0, cfg.model.n_classes))
             else:
-                all_result_v = np.zeros((0,cfg.model.n_classes))
+                all_result_v = np.zeros((0))
             all_target_v = np.zeros((0))
             all_uids_v = np.zeros((0))
             all_loss_v = np.zeros((0))
@@ -245,7 +268,10 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                     # Get model validation output and validation loss
                     with autocast(enabled=use_half_prec):
                         outputs_v = model(inputs_v)
-                        loss_v = criterion(outputs_v, targets_v)
+                        if goal_type == 'ordinal-regression':
+                            loss_v = criterion(outputs_v, targets_v, model.module.thresholds)
+                        else:
+                            loss_v = criterion(outputs_v, targets_v)
                         loss_mean_v = loss_v.mean()
 
                 # Update timer for batch
@@ -253,14 +279,14 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
 
                 # Update metrics
                 if cfg.evaluation.use_best_sample:
-                    if goal_type == 'regression':
-                        all_result_v = np.concatenate((all_result_v, outputs_v.squeeze(axis=1).cpu().detach().numpy()))
-                        all_target_v = np.concatenate((all_target_v, targets_v.squeeze(axis=1).cpu().detach().numpy()))
-                        all_loss_v = np.concatenate((all_loss_v, loss_v.cpu().squeeze(axis=1).detach().numpy()))
-                    else:
+                    if goal_type == 'classification':
                         all_result_v = np.concatenate((all_result_v, outputs_v.cpu().detach().numpy()))
                         all_target_v = np.concatenate((all_target_v, targets_v.cpu().detach().numpy()))
                         all_loss_v = np.concatenate((all_loss_v, loss_v.cpu().detach().numpy()))
+                    else:
+                        all_result_v = np.concatenate((all_result_v, outputs_v.squeeze(axis=1).cpu().detach().numpy()))
+                        all_target_v = np.concatenate((all_target_v, targets_v.squeeze(axis=1).cpu().detach().numpy()))
+                        all_loss_v = np.concatenate((all_loss_v, loss_v.cpu().squeeze(axis=1).detach().numpy()))
                     all_uids_v = np.concatenate((all_uids_v, uids_v))
 
                 else:
@@ -268,14 +294,17 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                     metric_outputs_v = outputs_v.cpu().detach().numpy()
                     if goal_type == 'regression':
                         metric_v = r2_score(metric_targets_v, metric_outputs_v)
-                    else:
+                    elif goal_type == 'classification':
                         predictions_v = np.argmax(metric_outputs_v, 1)
                         metric_v = accuracy_score(metric_targets_v, predictions_v)
                         top3_v = top_k_accuracy_score(metric_targets_t, metric_outputs_t, k=3)
                         top5_v = top_k_accuracy_score(metric_targets_t, metric_outputs_t, k=5)
+                        top3_values_v.update(top3_v)
+                        top5_values_v.update(top5_v)
+                    elif goal_type == 'ordinal-regression':
+                        labels_v = get_ORAT_labels(metric_outputs_v, model.thresholds)
+                        metric_v = accuracy_score(metric_targets_v, labels_v)
                     metric_values_v.update(metric_v)
-                    top3_values_v.update(top3_v)
-                    top5_values_v.update(top5_v)
                     losses_v.update(loss_mean_v)
 
                     if k % 100 == 0:
@@ -311,11 +340,14 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                 weights = pd_val_data['metric_weight'].to_numpy()
                 if goal_type == 'regression':
                     metric_v = r2_score(all_target_v, all_result_v, sample_weight=weights)
-                else:
+                elif goal_type == 'classification':
                     top3_v = top_k_accuracy_score(all_target_v.astype(np.int), all_result_v, k=3, sample_weight=weights)
                     top5_v = top_k_accuracy_score(all_target_v.astype(np.int), all_result_v, k=5, sample_weight=weights)
                     predictions_v = np.argmax(all_result_v, 1)
                     metric_v = accuracy_score(all_target_v.astype(np.int), predictions_v, sample_weight=weights)
+                elif goal_type == 'ordinal-regression':
+                    labels_v = get_ORAT_labels(all_result_v, model.thresholds)
+                    metric_v = accuracy_score(all_target_v.astype(np.int), labels_v, sample_weight=weights)
             else:
                 loss_mean_v = losses_v.avg
                 metric_v = metric_values_v.avg

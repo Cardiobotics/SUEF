@@ -106,7 +106,11 @@ def main(cfg: DictConfig) -> None:
                     tags.append('shared-weights')
                     model_img, model_flow = create_two_stream_models(cfg, cfg.model.pre_trained_checkpoint_img,
                                                                      cfg.model.pre_trained_checkpoint_flow)
-                    model = multi_stream.MultiStreamShared(model_img, model_flow, len(cfg.data.allowed_views)*2,
+                    if cfg.optimizer.loss_function == 'all-threshold':
+                        model = multi_stream.MultiStreamSharedOR(model_img, model_flow, len(cfg.data.allowed_views)*2,
+                                                           cfg.model.n_classes)
+                    else:
+                        model = multi_stream.MultiStreamShared(model_img, model_flow, len(cfg.data.allowed_views)*2,
                                                            cfg.model.n_classes)
                 else:
                     model_dict = {}
