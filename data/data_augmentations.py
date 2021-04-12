@@ -356,6 +356,9 @@ class DataAugmentations:
         start_frame = int((rwaves[rwave_indexes[0]] / 1000) * fps)
         end_frame = int((rwaves[rwave_indexes[1]] / 1000) * fps)
         # Need to fix some croppings as int rounding makes some videos 1 frame too long or too short
+        if end_frame > video.shape[0]:
+            end_frame -= 1
+            start_frame -= 1
         if (end_frame - start_frame) < self.transforms.target_fphb:
             #print("Current length incorrect. Shape: {} Start: {} End: {}".format(video.shape, start_frame, end_frame))
             if end_frame < video.shape[0]:
