@@ -19,6 +19,8 @@ class MultiStreamDataset(torch.utils.data.Dataset):
         self.data_in_mem = cfg_data.data_in_mem
         self.preprocessed_data_on_disk = cfg_data.preprocessed_data_on_disk
         self.targets = pd.read_csv(os.path.abspath(target_file), sep=cfg_data.file_sep)
+        if cfg_transforms.rwave_data_only:
+            self.targets = self.targets[self.targets['rwaves'].notnull()]
         if cfg_transforms.scale_output:
             self.targets['target'] = self.targets['target'].apply(lambda x: x / 100)
         self.unique_exams = self.targets.drop_duplicates('us_id')[['us_id', 'target']]
@@ -91,7 +93,8 @@ class MultiStreamDataset(torch.utils.data.Dataset):
                         hr = df['hr_' + str(view)]
                         file_img = df['filename_img_' + str(view)]
                         file_flow = df['filename_flow_' + str(view)]
-                        img, flow, _, _, _, _ = self.read_image_data(tuple((exam, 0, 0, fps, hr, file_img, file_flow, target)))
+                        rwaves = df['rwaves_' + str(view)]
+                        img, flow, _, _, _, _ = self.read_image_data(tuple((exam, 0, 0, fps, hr, file_img, file_flow, target, rwaves)))
                         img = self.data_aug_img.transform_values(img).transpose(3, 0, 1, 2)
                         data_list.append(img)
                         flow = self.data_aug_flow.transform_values(flow).transpose(3, 0, 1, 2)
@@ -158,7 +161,9 @@ class MultiStreamDataset(torch.utils.data.Dataset):
         print('All data processed and loaded to disk')
 
     def write_data_to_disk(self, data):
-        uid, _, _, _, _, file_img, file_flow, target = data
+        uid, _, _, _, _, file_img, file_flow, target, rwaves = data
+        if isinstance(pd.eval(rwaves), float):
+            return 0
         folder_img = os.path.join(self.temp_folder_img, uid)
         fp_img = os.path.join(folder_img, file_img)
         if not os.path.exists(folder_img):
@@ -177,7 +182,7 @@ class MultiStreamDataset(torch.utils.data.Dataset):
         return 0
 
     def read_image_data(self, data):
-        uid, iid, view, fps, hr, file_img, file_flow, target = data
+        uid, iid, view, fps, hr, file_img, file_flow, target, rwaves = data
         fp_img = os.path.join(os.path.join(self.base_folder_img, uid), file_img)
         fp_flow = os.path.join(os.path.join(self.base_folder_flow, uid), file_flow)
         try:
@@ -192,8 +197,8 @@ class MultiStreamDataset(torch.utils.data.Dataset):
             if flow is None:
                 raise ValueError("Flow is None")
             if not self.preprocessed_data_on_disk:
-                img = self.data_aug_img.transform_size(img, fps, hr)
-                flow = self.data_aug_flow.transform_size(flow, fps, hr)
+                img = self.data_aug_img.transform_size(img, fps, hr, pd.eval(rwaves))
+                flow = self.data_aug_flow.transform_size(flow, fps, hr, pd.eval(rwaves))
             return img, flow, target, uid, iid, view
         except Exception as e:
             print("Failed to get item for img file: {} and flow file: {} with exception: {}".format(file_img, file_flow, e))
@@ -238,11 +243,11 @@ class MultiStreamDataset(torch.utils.data.Dataset):
             new_dict = {}
             t = self.targets[self.targets['us_id'] == ue.us_id]
             for view in self.allowed_views:
-                ue_data = t[t.view == view][['instance_id', 'fps', 'hr', 'filename_img', 'filename_flow']].values.tolist()
+                ue_data = t[t.view == view][['instance_id', 'fps', 'hr', 'filename_img', 'filename_flow', 'rwaves']].values.tolist()
                 if len(ue_data) > 0:
                     new_dict[view] = ue_data
                 else:
-                    new_dict[view] = [[None, None, None, None, None]]
+                    new_dict[view] = [[None, None, None, None, None, None]]
             ue_combs = self.combinate(new_dict, len(self.allowed_views))
 
             for uec in ue_combs:
@@ -253,6 +258,7 @@ class MultiStreamDataset(torch.utils.data.Dataset):
                     pd_dict['hr_' + str(view)] = data[2]
                     pd_dict['filename_img_' + str(view)] = data[3]
                     pd_dict['filename_flow_' + str(view)] = data[4]
+                    pd_dict['rwaves_' + str(view)] = data[5]
                 all_generated_combinations.append(pd_dict)
         return pd.DataFrame(all_generated_combinations)
 

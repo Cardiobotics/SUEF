@@ -284,9 +284,9 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                         all_target_v = np.concatenate((all_target_v, targets_v.cpu().detach().numpy()))
                         all_loss_v = np.concatenate((all_loss_v, loss_v.cpu().detach().numpy()))
                     else:
-                        all_result_v = np.concatenate((all_result_v, outputs_v.squeeze(axis=1).cpu().detach().numpy()))
-                        all_target_v = np.concatenate((all_target_v, targets_v.squeeze(axis=1).cpu().detach().numpy()))
-                        all_loss_v = np.concatenate((all_loss_v, loss_v.cpu().squeeze(axis=1).detach().numpy()))
+                        all_result_v = np.concatenate((all_result_v, outputs_v.squeeze().cpu().detach().numpy()))
+                        all_target_v = np.concatenate((all_target_v, targets_v.squeeze().cpu().detach().numpy()))
+                        all_loss_v = np.concatenate((all_loss_v, loss_v.cpu().squeeze().detach().numpy()))
                     all_uids_v = np.concatenate((all_uids_v, uids_v))
 
                 else:
@@ -302,7 +302,7 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                         top3_values_v.update(top3_v)
                         top5_values_v.update(top5_v)
                     elif goal_type == 'ordinal-regression':
-                        labels_v = get_ORAT_labels(metric_outputs_v, model.thresholds)
+                        labels_v = get_ORAT_labels(metric_outputs_v, model.module.thresholds)
                         metric_v = accuracy_score(metric_targets_v, labels_v)
                     metric_values_v.update(metric_v)
                     losses_v.update(loss_mean_v)
@@ -312,9 +312,9 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                               'Validation Time: {batch_time.val:.3f} ({batch_time.avg:.3f}) \t '
                               'Validation Data Time: {data_time.val:.3f} ({data_time.avg:.3f}) \t '
                               'Validation Loss: {loss.val:.4f} ({loss.avg:.4f}) \t '
-                              'Validation {metric_name} Top1: {metric.val:.3f} ({metric.avg:.3f}) Top3: {top3.val:.3f} ({top3.avg:.3f}) Top5: {top5.val:.3f} ({top5.avg:.3f})\t'
+                              'Validation {metric_name}: {metric.val:.3f} ({metric.avg:.3f})\t'
                               .format(k + 1, len(val_data_loader), i + 1, batch_time=batch_time_v, data_time=data_time_v,
-                                      loss=losses_v, metric_name=metric_name, metric=metric_values_v, top3=top3_values_v, top5=top5_values_v))
+                                      loss=losses_v, metric_name=metric_name, metric=metric_values_v))
 
                 end_time_v = time.time()
 
@@ -346,7 +346,7 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                     predictions_v = np.argmax(all_result_v, 1)
                     metric_v = accuracy_score(all_target_v.astype(np.int), predictions_v, sample_weight=weights)
                 elif goal_type == 'ordinal-regression':
-                    labels_v = get_ORAT_labels(all_result_v, model.thresholds)
+                    labels_v = get_ORAT_labels(all_result_v, model.module.thresholds)
                     metric_v = accuracy_score(all_target_v.astype(np.int), labels_v, sample_weight=weights)
             else:
                 loss_mean_v = losses_v.avg
@@ -357,9 +357,9 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                   'Validation Time: {batch_time.avg:.3f} \t '
                   'Validation Data Time: {data_time.avg:.3f} \t '
                   'Validation Loss: {loss:.4f} \t '
-                  'Validation {metric_name} Top1: {metric:.3f} Top3: {top3:.3f} Top5: {top5:.3f}\t'
+                  'Validation {metric_name}: {metric:.3f}\t'
                   .format(i+1, batch_time=batch_time_v, data_time=data_time_v, loss=loss_mean_v, metric_name=metric_name
-                          , metric=metric_v, top3=top3_v, top5=top5_v))
+                          , metric=metric_v))
             if goal_type == 'regression':
                 print('Example targets: {} \n Example outputs: {}'.format(torch.squeeze(targets_v), torch.squeeze(outputs_v)))
             
@@ -382,10 +382,7 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
 
         if i % 10 == 0:
             if cfg.logging.logging_enabled:
-                if goal_type == 'regression':
-                    log_val_metrics(experiment, loss_mean_v, metric_v, max_val_metric)
-                else:
-                    log_val_classification(experiment, loss_mean_v, metric_v, max_val_metric, top3_v, top5_v)
+                log_val_metrics(experiment, loss_mean_v, metric_v, max_val_metric)
 
         epoch_time = time.time() - start_time_epoch
         rem_epochs = cfg.training.epochs - (i+1)

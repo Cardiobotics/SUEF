@@ -53,8 +53,8 @@ class MultiStreamShared(nn.Module):
         self.model_flow_name = 'Model_flow'
         self.add_module(self.model_flow_name, model_flow)
 
-        self.num_models = num_m
-        self.n_classes = n_classes
+        self.num_models = int(num_m)
+        self.n_classes = int(n_classes)
         self.fc_input_size = self.num_models * self.n_classes
 
         self.fc_name = 'Linear_layer'
