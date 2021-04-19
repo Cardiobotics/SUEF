@@ -166,8 +166,9 @@ class MultiStreamDataset(torch.utils.data.Dataset):
 
     def write_data_to_disk(self, data):
         uid, _, _, _, _, file_img, file_flow, target, rwaves = data
-        if isinstance(pd.eval(rwaves), float):
-            return 0
+        if self.rwave_only:
+            if isinstance(pd.eval(rwaves), float):
+                return 0
         folder_img = os.path.join(self.temp_folder_img, uid)
         fp_img = os.path.join(folder_img, file_img)
         if not os.path.exists(folder_img):
