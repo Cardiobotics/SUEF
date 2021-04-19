@@ -284,9 +284,9 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                         all_target_v = np.concatenate((all_target_v, targets_v.cpu().detach().numpy()))
                         all_loss_v = np.concatenate((all_loss_v, loss_v.cpu().detach().numpy()))
                     else:
-                        all_result_v = np.concatenate((all_result_v, outputs_v.squeeze().cpu().detach().numpy()))
-                        all_target_v = np.concatenate((all_target_v, targets_v.squeeze().cpu().detach().numpy()))
-                        all_loss_v = np.concatenate((all_loss_v, loss_v.cpu().squeeze().detach().numpy()))
+                        all_result_v = np.concatenate((all_result_v, outputs_v.squeeze(dim=1).cpu().detach().numpy()))
+                        all_target_v = np.concatenate((all_target_v, targets_v.squeeze(dim=1).cpu().detach().numpy()))
+                        all_loss_v = np.concatenate((all_loss_v, loss_v.cpu().squeeze(dim=1).detach().numpy()))
                     all_uids_v = np.concatenate((all_uids_v, uids_v))
 
                 else:
@@ -297,10 +297,6 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                     elif goal_type == 'classification':
                         predictions_v = np.argmax(metric_outputs_v, 1)
                         metric_v = accuracy_score(metric_targets_v, predictions_v)
-                        top3_v = top_k_accuracy_score(metric_targets_t, metric_outputs_t, k=3)
-                        top5_v = top_k_accuracy_score(metric_targets_t, metric_outputs_t, k=5)
-                        top3_values_v.update(top3_v)
-                        top5_values_v.update(top5_v)
                     elif goal_type == 'ordinal-regression':
                         labels_v = get_ORAT_labels(metric_outputs_v, model.module.thresholds)
                         metric_v = accuracy_score(metric_targets_v, labels_v)

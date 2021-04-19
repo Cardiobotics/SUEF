@@ -36,20 +36,40 @@ def main(cfg: DictConfig) -> None:
                                        conv1_t_stride=cfg.model.conv1_t_stride)
         model.load_state_dict(torch.load(cfg.model.pre_trained_checkpoint))
     elif cfg.model.name == 'i3d':
+
         tags.append('I3D')
-        if cfg.training.continue_training:
-            checkpoint = cfg.model.best_model
-        else:
-            checkpoint = cfg.model.pre_trained_checkpoint
         if cfg.data.type == 'img':
             tags.append('spatial')
+            if cfg.training.continue_training:
+                checkpoint = cfg.model.best_model
+            else:
+                checkpoint = cfg.model.pre_trained_checkpoint
             model = i3d_bert.inception_model(checkpoint, cfg.model.n_classes, cfg.model.n_input_channels,
                                              cfg.model.pre_n_classes, cfg.model.pre_n_input_channels)
         elif cfg.data.type == 'flow':
             tags.append('temporal')
             tags.append('TVL1')
+            if cfg.training.continue_training:
+                checkpoint = cfg.model.best_model
+            else:
+                checkpoint = cfg.model.pre_trained_checkpoint
             model = i3d_bert.inception_model_flow(checkpoint, cfg.model.n_classes, cfg.model.n_input_channels,
                                                   cfg.model.pre_n_classes, cfg.model.pre_n_input_channels)
+        elif cfg.data.type == 'multi-stream':
+            tags.append('multi-stream')
+            tags.append('TVL1')
+            if cfg.model.shared_weights:
+                tags.append('shared-weights')
+                model_img = i3d_bert.Inception3D_Maxpool(cfg.model.pre_trained_checkpoint_img, cfg.model.n_classes,
+                                                         cfg.model.n_input_channels_img, cfg.model.pre_n_classes,
+                                                         cfg.model.pre_n_input_channels_img)
+                model_flow = i3d_bert.Inception3D_Maxpool(cfg.model.pre_trained_checkpoint_flow, cfg.model.n_classes,
+                                                         cfg.model.n_input_channels_flow, cfg.model.pre_n_classes,
+                                                         cfg.model.pre_n_input_channels_flow)
+                model = multi_stream.MultiStreamShared(model_img, model_flow, len(cfg.data.allowed_views) * 2,
+                                                       cfg.model.n_classes)
+                if cfg.optimizer.loss_function == 'all-threshold':
+                    model.thresholds = torch.nn.Parameter(torch.tensor(range(10)).float(), requires_grad=True)
     elif cfg.model.name == 'i3d_bert':
         tags.append('I3D')
         tags.append('BERT')

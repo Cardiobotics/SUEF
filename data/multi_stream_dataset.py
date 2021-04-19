@@ -19,7 +19,8 @@ class MultiStreamDataset(torch.utils.data.Dataset):
         self.data_in_mem = cfg_data.data_in_mem
         self.preprocessed_data_on_disk = cfg_data.preprocessed_data_on_disk
         self.targets = pd.read_csv(os.path.abspath(target_file), sep=cfg_data.file_sep)
-        if cfg_transforms.rwave_data_only:
+        self.rwave_only = cfg_transforms.rwave_data_only
+        if self.rwave_only:
             self.targets = self.targets[self.targets['rwaves'].notnull()]
         if cfg_transforms.scale_output:
             self.targets['target'] = self.targets['target'].apply(lambda x: x / 100)
@@ -93,7 +94,10 @@ class MultiStreamDataset(torch.utils.data.Dataset):
                         hr = df['hr_' + str(view)]
                         file_img = df['filename_img_' + str(view)]
                         file_flow = df['filename_flow_' + str(view)]
-                        rwaves = df['rwaves_' + str(view)]
+                        if self.rwave_only:
+                            rwaves = df['rwaves_' + str(view)]
+                        else:
+                            rwaves = None
                         img, flow, _, _, _, _ = self.read_image_data(tuple((exam, 0, 0, fps, hr, file_img, file_flow, target, rwaves)))
                         img = self.data_aug_img.transform_values(img).transpose(3, 0, 1, 2)
                         data_list.append(img)
