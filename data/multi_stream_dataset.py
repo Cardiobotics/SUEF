@@ -22,6 +22,7 @@ class MultiStreamDataset(torch.utils.data.Dataset):
         self.rwave_only = cfg_transforms.rwave_data_only
         if self.rwave_only:
             self.targets = self.targets[self.targets['rwaves'].notnull()]
+        self.targets = self.targets.replace({np.nan: None})
         if cfg_transforms.scale_output:
             self.targets['target'] = self.targets['target'].apply(lambda x: x / 100)
         self.unique_exams = self.targets.drop_duplicates('us_id')[['us_id', 'target']]
