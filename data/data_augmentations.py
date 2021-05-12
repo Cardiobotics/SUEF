@@ -336,8 +336,7 @@ class DataAugmentations:
         crop_sequence = [(0, 0), (0, 0), (0, 0), (0, 0)]
         if self.transforms.crop_length and img.shape[0] > self.transforms.target_length:
             diff = img.shape[0] - self.transforms.target_length
-            rand = randint(0, diff)
-            crop_sequence[0] = (rand, diff - rand)
+            crop_sequence[0] = (0, diff)
         return crop(img, crop_width=tuple(crop_sequence)).astype(np.uint8)
 
     def t_crop_rwave(self, video, rwaves, rwave_indexes, fps):
