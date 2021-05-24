@@ -512,7 +512,7 @@ class DataAugmentations:
         # In those cases we dont zoom.
         if zoom_factor < 0:
             zoom_factor = 1
-        new_img = np.zeros((self.target_length, self.target_height, self.target_width, img.shape[3]))
+        new_img = np.zeros_like(img)
         new_img = new_img + self.black_val
         diff_height = None
         diff_width = None
@@ -521,16 +521,16 @@ class DataAugmentations:
                                  multichannel=True)
             # Calculate offsets for zoomed frame
             if diff_height is None or diff_width is None:
-                diff_height = zoom_frame.shape[0] - self.target_height
-                diff_width = zoom_frame.shape[1] - self.target_width
+                diff_height = zoom_frame.shape[0] - img.shape[1]
+                diff_width = zoom_frame.shape[1] - img.shape[2]
                 # Base case
                 if zoom_factor == 1 or (diff_height == 0 and diff_width == 0):
                     return img
                 elif zoom_factor > 1:
                     diff_h_start = int(diff_height / 2)
-                    diff_h_end = self.target_height + diff_h_start
+                    diff_h_end = img.shape[1] + diff_h_start
                     diff_w_start = int(diff_width / 2)
-                    diff_w_end = self.target_width + diff_w_start
+                    diff_w_end = img.shape[2] + diff_w_start
                 elif zoom_factor < 1:
                     diff_h_start = int(abs(diff_height) / 2)
                     diff_h_end = zoom_frame.shape[0] + diff_h_start
