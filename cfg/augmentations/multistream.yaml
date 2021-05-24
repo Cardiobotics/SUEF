@@ -28,6 +28,9 @@ train_a:
     intensity_w_std_dev: 3
     intensity_var: 0.05
 
+    zoom: False
+    zoom_factor_std_dev: 0.1
+
   flow:
     gaussian_noise: False
     gn_var: 0.002
@@ -54,6 +57,9 @@ train_a:
     intensity_h_std_dev: 3
     intensity_w_std_dev: 3
     intensity_var: 0.05
+
+    zoom: False
+    zoom_factor_std_dev: 0.1
 
 
 eval_a:
@@ -84,6 +90,9 @@ eval_a:
     intensity_w_std_dev: 3
     intensity_var: 0.05
 
+    zoom: False
+    zoom_factor_std_dev: 0.1
+
   flow:
     gaussian_noise: False
     gn_var: 0.002
@@ -110,3 +119,6 @@ eval_a:
     intensity_h_std_dev: 3
     intensity_w_std_dev: 3
     intensity_var: 0.05
+
+    zoom: False
+    zoom_factor_std_dev: 0.1

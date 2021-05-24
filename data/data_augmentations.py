@@ -1,12 +1,8 @@
 import numpy as np
-from skimage.util import random_noise
-from skimage.util import img_as_float32
-from skimage.util import crop
+from skimage.util import random_noise, img_as_float32, crop
 from skimage.color import rgb2gray
-from skimage.transform import resize
-from skimage.transform import rotate
-from random import choice
-from random import randint
+from skimage.transform import resize, rescale, rotate
+from random import choice, randint
 import math
 import time
 from omegaconf import OmegaConf, DictConfig
@@ -89,6 +85,12 @@ class DataAugmentations:
             time_rot = time.time()
             time_rot_diff = time_rot - time_tv
             print("Rotated frames. Time to process: {}".format(time_rot_diff))
+        if self.augmentations.zoom:
+            img = self.t_zoom(img)
+        if self.debug:
+            time_zoom = time.time()
+            time_zoom_diff = time_zoom - time_rot
+            print("Zoomed frames. Time to process: {}".format(time_zoom_diff))
 
         # Local changes
         if self.augmentations.local_blackout:
@@ -503,4 +505,42 @@ class DataAugmentations:
                     max_diff = diff
                     max_diff_indexes = (i - 1, i)
         return max_diff, max_diff_indexes
+
+    def t_zoom(self, img):
+        zoom_factor = 1 + np.random.normal(0, self.augmentations.zoom_factor_std_dev)
+        # Sometimes normal distribution can give too extreme results.
+        # In those cases we dont zoom.
+        if zoom_factor < 0:
+            zoom_factor = 1
+        new_img = np.zeros((self.target_length, self.target_height, self.target_width, img.shape[3]))
+        new_img = new_img + self.black_val
+        diff_height = None
+        diff_width = None
+        for i, frame in enumerate(img):
+            zoom_frame = rescale(frame, zoom_factor, mode='constant', cval=self.black_val, preserve_range=True,
+                                 multichannel=True)
+            # Calculate offsets for zoomed frame
+            if diff_height is None or diff_width is None:
+                diff_height = zoom_frame.shape[0] - self.target_height
+                diff_width = zoom_frame.shape[1] - self.target_width
+                # Base case
+                if zoom_factor == 1 or (diff_height == 0 and diff_width == 0):
+                    return img
+                elif zoom_factor > 1:
+                    diff_h_start = int(diff_height / 2)
+                    diff_h_end = self.target_height + diff_h_start
+                    diff_w_start = int(diff_width / 2)
+                    diff_w_end = self.target_width + diff_w_start
+                elif zoom_factor < 1:
+                    diff_h_start = int(abs(diff_height) / 2)
+                    diff_h_end = zoom_frame.shape[0] + diff_h_start
+                    diff_w_start = int(abs(diff_width) / 2)
+                    diff_w_end = zoom_frame.shape[1] + diff_w_start
+
+            # Set new frame to zoomed frame
+            if zoom_factor > 1:
+                new_img[i] = zoom_frame[diff_h_start:diff_h_end, diff_w_start:diff_w_end, :]
+            elif zoom_factor < 1:
+                new_img[i, abs(diff_h_start):abs(diff_h_end), abs(diff_w_start):abs(diff_w_end), :] = zoom_frame
+        return new_img
 
