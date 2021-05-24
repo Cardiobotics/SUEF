@@ -15,9 +15,9 @@ data:
   file_sep: ;
   base_target_folder: /proj/suef_data/targets
   data_folder: ${data.base_data_folder}/${data.type}/
-  train_targets: ${data.base_target_folder}/train_data.csv
-  val_targets: ${data.base_target_folder}/val_data.csv
-  test_targets: ${data.base_target_folder}/test_data.csv
+  train_targets: ${data.base_target_folder}/train_data_capped.csv
+  val_targets: ${data.base_target_folder}/val_data_capped.csv
+  test_targets: ${data.base_target_folder}/test_data_capped.csv
 
 logging:
   logging_enabled: True
@@ -46,7 +46,7 @@ optimizer:
   learning_rate: 0.001
   weight_decay: 0.0001
   use_scheduler: True
-  s_patience: 100
+  s_patience: 10
   s_factor: 0.1
 
 training:
