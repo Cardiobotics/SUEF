@@ -1,3 +1,4 @@
+--find-links https://download.pytorch.org/whl/torch_stable.html
 neptune-client==0.4.120
 nltk==3.4.5
 numpy==1.18.1
@@ -10,6 +11,7 @@ pydicom==1.4.2
 scikit-image==0.17.2
 scikit-learn==0.22.1
 scipy==1.4.1
-torch==1.7.0.dev20200923
-torchvision==0.8.0.dev20200923
-
+torch==1.7.1+cu101
+torchvision==0.8.2+cu101
+torchaudio==0.7.2
+hydra-core
