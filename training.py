@@ -387,27 +387,27 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
 
 
 def log_train_metrics(experiment, t_loss, t_metric):
-    experiment.log_metric('training_loss', t_loss)
-    experiment.log_metric('training_r2', t_metric)
+    experiment['train/loss'].log(t_loss)
+    experiment['train/r2'].log(t_metric)
 
 def log_train_classification(experiment, t_loss, t_metric, top3, top5):
-    experiment.log_metric('training_loss', t_loss)
-    experiment.log_metric('training_top1_accuracy', t_metric)
-    experiment.log_metric('training_top3_accuracy', top3)
-    experiment.log_metric('training_top5_accuracy', top5)
+    experiment['train/loss'].log(t_loss)
+    experiment['train/top1_accuracy'].log(t_metric)
+    experiment['train/top3_accuracy'].log(top3)
+    experiment['train/top5_accuracy'].log(top5)
 
 
 def log_val_metrics(experiment, v_loss, v_metric, best_v_metric):
-    experiment.log_metric('validation_loss', v_loss)
-    experiment.log_metric('validation_r2', v_metric)
-    experiment.log_metric('best_val_r2', best_v_metric)
+    experiment['val/loss'].log(v_loss)
+    experiment['val/r2'].log(v_metric)
+    experiment['val/best_r2'].log(best_v_metric)
 
 def log_val_classification(experiment, loss, metric, max_val_metric, top3, top5):
-    experiment.log_metric('validation_loss', loss)
-    experiment.log_metric('validation_top1_accuracy', metric)
-    experiment.log_metric('validation_top3_accuracy', top3)
-    experiment.log_metric('validation_top5_accuracy', top5)
-    experiment.log_metric('best_val_top1_accuracy', max_val_metric)
+    experiment['val/loss'].log(loss)
+    experiment['val/top1_accuracy'].log(metric)
+    experiment['val/top3_accuracy'].log(top3)
+    experiment['val/top5_accuracy'].log(top5)
+    experiment['val/best_top1_accuracy'].log(max_val_metric)
 
 def save_checkpoint(save_file_path, model, optimizer):
     if hasattr(model, 'module'):

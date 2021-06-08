@@ -2,7 +2,7 @@ import torch
 from torch.utils.data import DataLoader, WeightedRandomSampler, RandomSampler
 from models import custom_cnn, resnext, i3d_bert, multi_stream
 from training import train_and_validate
-import neptune
+import neptune.new as neptune
 import hydra
 from data.npy_dataset import NPYDataset
 from data.multi_stream_dataset import MultiStreamDataset
@@ -149,13 +149,13 @@ def main(cfg: DictConfig) -> None:
 
     experiment = None
     if cfg.logging.logging_enabled:
-        neptune.init(cfg.logging.project_name)
         experiment_params = {**dict(cfg.data_loader), **dict(cfg.transforms), **dict(cfg.augmentations),
                              **dict(cfg.performance), **dict(cfg.training), **dict(cfg.optimizer), **dict(cfg.model),
                              **dict(cfg.evaluation), 'target_file': cfg.data.train_targets, 'data_stream': cfg.data.type, 'view': cfg.data.name,
                              'train_dataset_size': len(train_data_loader.dataset),
                              'val_dataset_size': len(val_data_loader.dataset)}
-        experiment = neptune.create_experiment(name=cfg.logging.experiment_name, params=experiment_params, tags=tags)
+        experiment = neptune.init(project=cfg.logging.project_name, name=cfg.logging.experiment_name, tags=tags)
+        experiment['parameters'] = experiment_params
 
     if not os.path.exists(cfg.training.checkpoint_save_path):
         os.makedirs(cfg.training.checkpoint_save_path)
