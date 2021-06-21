@@ -30,8 +30,8 @@ class MultiStreamDataset(torch.utils.data.Dataset):
         self.data_aug_flow = data_augmentations.DataAugmentations(cfg_transforms, cfg_augmentations.flow)
         self.base_folder_img = cfg_data.data_folder_img
         self.base_folder_flow = cfg_data.data_folder_flow
-        if cfg_data.only_use_complete_exams:
-            self.only_use_complete = True
+        self.only_use_complete = cfg_data.only_use_complete_exams
+        if self.only_use_complete:
             self.filter_incomplete_exams()
         if self.is_eval_set:
             self.targets_combinations = self.generate_all_combinations()
