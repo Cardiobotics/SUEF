@@ -140,7 +140,7 @@ class MultiStreamDataset(torch.utils.data.Dataset):
                         img, flow = self.generate_dummy_data()
                         data_list.append(img)
                         data_list.append(flow)
-        if self.only_use_complete:
+        if not self.only_use_complete:
             # Replace dummy views with real views.
             dummy_indexes = []
             real_indexes = []
