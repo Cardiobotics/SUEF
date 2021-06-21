@@ -144,7 +144,7 @@ class MultiStreamDataset(torch.utils.data.Dataset):
             # Replace dummy views with real views.
             dummy_indexes = []
             real_indexes = []
-            for i in range(0, len(self.allowed_views), 2):
+            for i in range(0, len(self.allowed_views)*2, 2):
                 if not data_list[i].all():
                     dummy_indexes.append(i)
                 else:
