@@ -31,6 +31,7 @@ class MultiStreamDataset(torch.utils.data.Dataset):
         self.base_folder_img = cfg_data.data_folder_img
         self.base_folder_flow = cfg_data.data_folder_flow
         if cfg_data.only_use_complete_exams:
+            self.only_use_complete = True
             self.filter_incomplete_exams()
         if self.is_eval_set:
             self.targets_combinations = self.generate_all_combinations()
@@ -139,6 +140,26 @@ class MultiStreamDataset(torch.utils.data.Dataset):
                         img, flow = self.generate_dummy_data()
                         data_list.append(img)
                         data_list.append(flow)
+        if self.only_use_complete:
+            # Replace dummy views with real views.
+            dummy_indexes = []
+            real_indexes = []
+            for i in range(0, len(self.allowed_views), 2):
+                if not data_list[i].all():
+                    dummy_indexes.append(i)
+                else:
+                    real_indexes.append(i)
+            if len(dummy_indexes):
+                # Sort real views by priority specified by Eva
+                real_indexes.sort(reverse=True)
+                if real_indexes[0] == 6:
+                    real_indexes.append(real_indexes.pop(0))
+                for i in dummy_indexes:
+                    # Replace dummy image data with top prio real image data
+                    data_list[i] = data_list[real_indexes[0]]
+                    # Replace dummy flow data with top prio real flow data
+                    data_list[i + 1] = data_list[real_indexes[0] + 1]
+
         return data_list, np.expand_dims(target, axis=0).astype(np.float32), index, exam
 
     def load_data_into_mem(self):
