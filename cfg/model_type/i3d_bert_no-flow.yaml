@@ -1,0 +1,10 @@
+# @package model
+
+pre_trained_checkpoint_img: /proj/suef_data/pretrained_models/i3d_bert_rgb_imagenet.pth
+
+n_input_channels_img: 1
+pre_n_input_channels_img: 1
+
+shared_weights: True
+
+best_model: /proj/suef_data/saved_models/i3d_bert_multi-stream_8-Stream-mixed_exp_SUEF-468.pth

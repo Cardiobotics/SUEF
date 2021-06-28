@@ -7,6 +7,7 @@ import hydra
 from data.npy_dataset import NPYDataset
 from data.multi_stream_dataset import MultiStreamDataset
 from omegaconf import DictConfig
+from collections import OrderedDict
 import logging
 import os
 
@@ -109,6 +110,35 @@ def main(cfg: DictConfig) -> None:
                         model_dict[m_img_name] = model_img
                         model_dict[m_flow_name] = model_flow
                     model = multi_stream.MultiStream(model_dict)
+            if cfg.data.type == 'no-flow':
+                tags.append('no-flow')
+                tags.append('multi-stream')
+                if cfg.model.shared_weights:
+                    tags.append('shared-weights')
+                    model_img = i3d_bert.rgb_I3D64f_bert2_FRMB('', cfg.model.length,
+                                                               cfg.model.n_classes, cfg.model.n_input_channels_img,
+                                                               cfg.model.pre_n_classes,
+                                                               cfg.model.pre_n_input_channels_img)
+                    model = multi_stream.MSNoFlowShared(model_img, len(cfg.data.allowed_views)*2, cfg.model.pre_n_classes)
+                    img_state_dict = OrderedDict({k: state_dict[k] for k in state_dict.keys() if
+                                                  (k[0:9] == 'Model_img' or k[0:12] == 'Linear_layer')})
+                    model.load_state_dict(img_state_dict)
+                    model.replace_fc(len(cfg.data.allowed_views), cfg.model.n_classes)
+                    print('New FC shape:')
+                    print(model._module['Linear_layer'].shape)
+                    if cfg.optimizer.loss_function == 'all-threshold':
+                        model.thresholds = torch.nn.Parameter(torch.tensor(range(10)).float(), requires_grad=True)
+                else:
+                    model_dict = {}
+                    for view in cfg.data.allowed_views:
+                        m_img_name = 'model_img_' + str(view)
+                        model_img = i3d_bert.rgb_I3D64f_bert2_FRMB('', cfg.model.length,
+                                                                   cfg.model.n_classes, cfg.model.n_input_channels_img,
+                                                                   cfg.model.pre_n_classes,
+                                                                   cfg.model.pre_n_input_channels_img)
+                        model_dict[m_img_name] = model_img
+                    model = multi_stream.MultiStream(model_dict)
+                    model.load_state_dict(state_dict)
         else:
             if cfg.data.type == 'img':
                 tags.append('spatial')
@@ -151,8 +181,7 @@ def main(cfg: DictConfig) -> None:
                                                                cfg.model.n_classes, cfg.model.n_input_channels_img,
                                                                cfg.model.pre_n_classes,
                                                                cfg.model.pre_n_input_channels_img)
-                    model = multi_stream.MSNoFlowShared(model_img, model_flow, len(cfg.data.allowed_views),
-                                                           cfg.model.n_classes)
+                    model = multi_stream.MSNoFlowShared(model_img, len(cfg.data.allowed_views), cfg.model.n_classes)
                     if cfg.optimizer.loss_function == 'all-threshold':
                         model.thresholds = torch.nn.Parameter(torch.tensor(range(10)).float(), requires_grad=True)
                 else:
