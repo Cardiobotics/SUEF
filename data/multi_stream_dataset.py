@@ -297,3 +297,94 @@ class MultiStreamDataset(torch.utils.data.Dataset):
                          self.data_aug_flow.transforms.target_height,
                          self.data_aug_flow.transforms.target_width), dtype=np.float32)
         return img, flow
+
+
+class MultiStreamDatasetNoFlow(MultiStreamDataset):
+    def __init__(self, cfg_data, cfg_transforms, cfg_augmentations, target_file, is_eval_set):
+        super().__init__(cfg_data, cfg_transforms, cfg_augmentations, target_file, is_eval_set)
+
+    def __getitem__(self, index):
+        data_list = []
+        if self.is_eval_set:
+            if self.data_in_mem:
+                df = self.targets_combinations.iloc[index]
+                exam = df['us_id']
+                target = df['target']
+                for view in self.allowed_views:
+                    iid = df['instance_id_' + str(view)]
+                    if np.isnan(iid):
+                        img, _ = self.generate_dummy_data()
+                        data_list.append(img)
+                    else:
+                        row = self.data_frame[(self.data_frame['us_id'] == exam) & (self.data_frame['view'] == view) & (self.data_frame['iid'] == iid)]
+                        img = row['img']
+                        img = self.data_aug_img.transform_values(img).transpose(3, 0, 1, 2)
+                        data_list.append(img)
+            else:
+                df = self.targets_combinations.iloc[index]
+                exam = df['us_id']
+                target = df['target']
+                for view in self.allowed_views:
+                    iid = df['instance_id_' + str(view)]
+                    if np.isnan(iid):
+                        img, _ = self.generate_dummy_data()
+                        data_list.append(img)
+                    else:
+                        fps = df['fps_' + str(view)]
+                        hr = df['hr_' + str(view)]
+                        file_img = df['filename_img_' + str(view)]
+                        file_flow = df['filename_flow_' + str(view)]
+                        if self.rwave_only:
+                            rwaves = df['rwaves_' + str(view)]
+                        else:
+                            rwaves = None
+                        img, _, _, _, _, _ = self.read_image_data(tuple((exam, 0, 0, fps, hr, file_img, file_flow, target, rwaves)))
+                        img = self.data_aug_img.transform_values(img).transpose(3, 0, 1, 2)
+                        data_list.append(img)
+        else:
+            exam = self.unique_exams.iloc[index].us_id
+            target = self.unique_exams.iloc[index].target
+            if self.data_in_mem:
+                for view in self.allowed_views:
+                    df = self.data_frame[self.data_frame['us_id'] == exam].reset_index(drop=True)
+                    all_exam_indx = df[df['view'] == view].index
+                    if len(all_exam_indx) > 0:
+                        rndm_indx = random.choice(all_exam_indx)
+                        row = self.data_frame.iloc[rndm_indx]
+                        img = row['img']
+                        img = self.data_aug_img.transform_values(img).transpose(3, 0, 1, 2)
+                        data_list.append(img)
+                    else:
+                        img, _ = self.generate_dummy_data()
+                        data_list.append(img)
+            else:
+                for view in self.allowed_views:
+                    df = self.targets[self.targets['us_id'] == exam].reset_index(drop=True)
+                    all_exam_indx = df[df['view'] == view].index
+                    if len(all_exam_indx) > 0:
+                        rndm_indx = random.choice(all_exam_indx)
+                        img, _, _, _, _, _ = self.read_image_data(tuple(df.iloc[rndm_indx]))
+                        img = self.data_aug_img.transform_values(img).transpose(3, 0, 1, 2)
+                        data_list.append(img)
+                    else:
+                        img, _ = self.generate_dummy_data()
+                        data_list.append(img)
+        if not self.only_use_complete:
+            # Replace dummy views with real views.
+            dummy_indexes = []
+            real_indexes = []
+            for i in range(0, len(self.allowed_views)):
+                if not data_list[i].all():
+                    dummy_indexes.append(i)
+                else:
+                    real_indexes.append(i)
+            if len(dummy_indexes):
+                # Sort real views by priority specified by Eva
+                real_indexes.sort(reverse=True)
+                if real_indexes[0] == 3:
+                    real_indexes.append(real_indexes.pop(0))
+                for i in dummy_indexes:
+                    # Replace dummy image data with top prio real image data
+                    data_list[i] = data_list[real_indexes[0]]
+
+        return data_list, np.expand_dims(target, axis=0).astype(np.float32), index, exam
