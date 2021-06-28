@@ -83,3 +83,43 @@ class MultiStreamShared(nn.Module):
         self.fc_name = 'Linear_layer'
         fc_linear = nn.Linear(self.fc_input_size, self.n_classes)
         self.add_module(self.fc_name, fc_linear)
+
+
+class MSNoFlowShared(nn.Module):
+    '''
+    Multi-Stream model with shared weights and no flow data.
+    '''
+
+    def __init__(self, model_img, num_m, n_classes):
+        super(MultiStreamShared, self).__init__()
+
+        self.model_img_name = 'Model_img'
+        self.add_module(self.model_img_name, model_img)
+
+        self.num_models = int(num_m)
+        self.n_classes = int(n_classes)
+        self.fc_input_size = self.num_models * self.n_classes
+
+        self.fc_name = 'Linear_layer'
+        fc_linear = nn.Linear(self.fc_input_size, self.n_classes)
+        self.add_module(self.fc_name, fc_linear)
+
+    def forward(self, x):
+        assert len(x) == self.num_models
+
+        y = []
+
+        for i, inp in enumerate(x):
+            y.append(self._modules[self.model_img_name](inp))
+        y = torch.stack(y, dim=1).squeeze().view(-1, self.fc_input_size)
+        y = self._modules[self.fc_name](F.relu(y))
+        return y
+
+    def replace_fc(self, num_models, n_classes):
+        self.num_models = num_models
+        self.n_classes = n_classes
+        # Replace multistream fc layer
+        self.fc_input_size = self.num_models * self.n_classes
+        self.fc_name = 'Linear_layer'
+        fc_linear = nn.Linear(self.fc_input_size, self.n_classes)
+        self.add_module(self.fc_name, fc_linear)

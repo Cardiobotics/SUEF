@@ -142,6 +142,30 @@ def main(cfg: DictConfig) -> None:
                         model_dict[m_img_name] = model_img
                         model_dict[m_flow_name] = model_flow
                     model = multi_stream.MultiStream(model_dict, cfg.model.n_classes)
+            if cfg.data.type == 'no-flow':
+                tags.append('no-flow')
+                tags.append('multi-stream')
+                if cfg.model.shared_weights:
+                    tags.append('shared-weights')
+                    model_img = i3d_bert.rgb_I3D64f_bert2_FRMB(cfg.model.pre_trained_checkpoint_img, cfg.model.length,
+                                                               cfg.model.n_classes, cfg.model.n_input_channels_img,
+                                                               cfg.model.pre_n_classes,
+                                                               cfg.model.pre_n_input_channels_img)
+                    model = multi_stream.MSNoFlowShared(model_img, model_flow, len(cfg.data.allowed_views),
+                                                           cfg.model.n_classes)
+                    if cfg.optimizer.loss_function == 'all-threshold':
+                        model.thresholds = torch.nn.Parameter(torch.tensor(range(10)).float(), requires_grad=True)
+                else:
+                    model_dict = {}
+                    for view in cfg.data.allowed_views:
+                        m_img_name = 'model_img_' + str(view)
+                        model_img = i3d_bert.rgb_I3D64f_bert2_FRMB(cfg.model.pre_trained_checkpoint_img,
+                                                                   cfg.model.length,
+                                                                   cfg.model.n_classes, cfg.model.n_input_channels_img,
+                                                                   cfg.model.pre_n_classes,
+                                                                   cfg.model.pre_n_input_channels_img)
+                        model_dict[m_img_name] = model_img
+                    model = multi_stream.MultiStream(model_dict, cfg.model.n_classes)
 
     train_data_set, val_data_set = create_data_sets(cfg)
 
