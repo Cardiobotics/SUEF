@@ -234,7 +234,7 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                       metric=metric_values_t))
 
         if cfg.logging.logging_enabled:
-            log_train_metrics(experiment, losses_t.avg, metric_values_t.avg)
+            log_train_metrics(experiment, losses_t.avg, metric_values_t.avg, optimizer.param_groups[0]['lr'])
 
         # Validation
 
@@ -387,9 +387,10 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
         print('Epoch {} completed. Time to complete: {}. Estimated remaining time: {}'.format(i+1, epoch_time, format_time(rem_time)))
 
 
-def log_train_metrics(experiment, t_loss, t_metric):
+def log_train_metrics(experiment, t_loss, t_metric, lr):
     experiment['train/loss'].log(t_loss)
     experiment['train/r2'].log(t_metric)
+    experiment['train/lr'].log(lr)
 
 def log_train_classification(experiment, t_loss, t_metric, top3, top5):
     experiment['train/loss'].log(t_loss)
