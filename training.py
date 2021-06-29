@@ -364,7 +364,7 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
             #scheduler.step()
 
         if cfg.training.checkpointing_enabled and cfg.logging.logging_enabled:
-            experiment_id = run["sys/id"].fetch()
+            experiment_id = experiment["sys/id"].fetch()
             if metric_v > max_val_metric:
                 checkpoint_name = cfg.training.checkpoint_save_path + cfg.model.name + '_' + cfg.data.type + '_'\
                                   + cfg.data.name + '_exp_' + experiment_id + '.pth'

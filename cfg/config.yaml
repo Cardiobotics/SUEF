@@ -1,5 +1,5 @@
 defaults:
-  - data_type: multistream
+  - data_type: no-flow
   - model: i3d_bert
   - model_type: ${defaults.1.model}_${defaults.0.data_type}
   - transforms: ${defaults.0.data_type}
@@ -15,9 +15,9 @@ data:
   file_sep: ;
   base_target_folder: /proj/suef_data/targets
   data_folder: ${data.base_data_folder}/${data.type}/
-  train_targets: ${data.base_target_folder}/train_data_capped.csv
-  val_targets: ${data.base_target_folder}/val_data_capped.csv
-  test_targets: ${data.base_target_folder}/test_data_capped.csv
+  train_targets: ${data.base_target_folder}/train_new_views_merged.csv
+  val_targets: ${data.base_target_folder}/val_new_views_merged.csv
+  test_targets: ${data.base_target_folder}/test_new_views_merged.csv
 
 logging:
   logging_enabled: True
@@ -50,7 +50,7 @@ optimizer:
   s_factor: 0.1
 
 training:
-  epochs: 1000
+  epochs: 500
   checkpointing_enabled: True
   continue_training: True
   checkpoint_save_path: /proj/suef_data/saved_models/

@@ -10,4 +10,4 @@ pre_n_input_channels_flow: 2
 
 shared_weights: True
 
-best_model: /proj/suef_data/saved_models/i3d_bert_multi-stream_2-Stream-mixed_exp_SUEF-314.pth
+best_model: /proj/suef_data/saved_models/i3d_bert_multi-stream_8-Stream_exp_SUEF-468.pth

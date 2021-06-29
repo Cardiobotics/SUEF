@@ -5,7 +5,7 @@ from training import train_and_validate
 import neptune.new as neptune
 import hydra
 from data.npy_dataset import NPYDataset
-from data.multi_stream_dataset import MultiStreamDataset
+from data.multi_stream_dataset import MultiStreamDataset, MultiStreamDatasetNoFlow
 from omegaconf import DictConfig
 from collections import OrderedDict
 import logging
@@ -19,7 +19,7 @@ logging.getLogger('numexpr').setLevel(logging.WARNING)
 def main(cfg: DictConfig) -> None:
 
     assert cfg.model.name in ['ccnn', 'resnext', 'i3d', 'i3d_bert', 'i3d_bert_2stream']
-    assert cfg.data.type in ['img', 'flow', 'multi-stream']
+    assert cfg.data.type in ['img', 'flow', 'multi-stream', 'no-flow']
 
     tags = []
 
@@ -97,8 +97,6 @@ def main(cfg: DictConfig) -> None:
                     model.load_state_dict(state_dict)
                     if not int(len(state_dict['Linear_layer.weight'][0])/cfg.model.pre_n_classes) == len(cfg.data.allowed_views) * 2 or not cfg.model.pre_n_classes == cfg.model.n_classes:
                         model.replace_fc(len(cfg.data.allowed_views) * 2, cfg.model.n_classes)
-                        print('New FC shape:')
-                        print(model._module['Linear_layer'].shape)
                     if cfg.optimizer.loss_function == 'all-threshold':
                         model.thresholds = torch.nn.Parameter(torch.tensor(range(10)).float(), requires_grad=True)
                 else:
@@ -124,8 +122,6 @@ def main(cfg: DictConfig) -> None:
                                                   (k[0:9] == 'Model_img' or k[0:12] == 'Linear_layer')})
                     model.load_state_dict(img_state_dict)
                     model.replace_fc(len(cfg.data.allowed_views), cfg.model.n_classes)
-                    print('New FC shape:')
-                    print(model._module['Linear_layer'].shape)
                     if cfg.optimizer.loss_function == 'all-threshold':
                         model.thresholds = torch.nn.Parameter(torch.tensor(range(10)).float(), requires_grad=True)
                 else:
@@ -236,6 +232,8 @@ def create_data_loaders(cfg, train_d_set, val_d_set):
 def create_data_sets(cfg):
     if cfg.data.type == 'multi-stream':
         dataset_c = MultiStreamDataset
+    elif cfg.data.type == 'no-flow':
+        dataset_c = MultiStreamDatasetNoFlow
     else:
         dataset_c = NPYDataset
     # Create DataLoaders for training and validation

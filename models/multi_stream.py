@@ -45,7 +45,7 @@ class MultiStreamShared(nn.Module):
     '''
 
     def __init__(self, model_img, model_flow, num_m, n_classes):
-        super(MultiStreamShared, self).__init__()
+        super().__init__()
 
         self.model_img_name = 'Model_img'
         self.add_module(self.model_img_name, model_img)
@@ -91,7 +91,7 @@ class MSNoFlowShared(nn.Module):
     '''
 
     def __init__(self, model_img, num_m, n_classes):
-        super(MultiStreamShared, self).__init__()
+        super().__init__()
 
         self.model_img_name = 'Model_img'
         self.add_module(self.model_img_name, model_img)
