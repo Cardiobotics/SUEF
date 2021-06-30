@@ -359,25 +359,23 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
             if goal_type == 'regression':
                 print('Example targets: {} \n Example outputs: {}'.format(torch.squeeze(targets_v), torch.squeeze(outputs_v)))
             
-        if use_scheduler:
-            scheduler.step(loss_mean_v)
-            #scheduler.step()
+            if use_scheduler:
+                scheduler.step(loss_mean_v)
 
-        if cfg.training.checkpointing_enabled and cfg.logging.logging_enabled:
-            experiment_id = experiment["sys/id"].fetch()
-            if metric_v > max_val_metric:
-                checkpoint_name = cfg.training.checkpoint_save_path + cfg.model.name + '_' + cfg.data.type + '_'\
-                                  + cfg.data.name + '_exp_' + experiment_id + '.pth'
-                save_checkpoint(checkpoint_name, model, optimizer)
-                max_val_metric = metric_v
-        elif cfg.training.checkpointing_enabled:
-            if metric_v > max_val_metric:
-                checkpoint_name = cfg.training.checkpoint_save_path + cfg.model.name + '_' + cfg.data.type + '_'\
-                                  + cfg.data.name + '_test' + '.pth'
-                save_checkpoint(checkpoint_name, model, optimizer)
-                max_val_metric = metric_v
+            if cfg.training.checkpointing_enabled and cfg.logging.logging_enabled:
+                experiment_id = experiment["sys/id"].fetch()
+                if metric_v > max_val_metric:
+                    checkpoint_name = cfg.training.checkpoint_save_path + cfg.model.name + '_' + cfg.data.type + '_'\
+                                      + cfg.data.name + '_exp_' + experiment_id + '.pth'
+                    save_checkpoint(checkpoint_name, model, optimizer)
+                    max_val_metric = metric_v
+            elif cfg.training.checkpointing_enabled:
+                if metric_v > max_val_metric:
+                    checkpoint_name = cfg.training.checkpoint_save_path + cfg.model.name + '_' + cfg.data.type + '_'\
+                                      + cfg.data.name + '_test' + '.pth'
+                    save_checkpoint(checkpoint_name, model, optimizer)
+                    max_val_metric = metric_v
 
-        if i % 10 == 0:
             if cfg.logging.logging_enabled:
                 log_val_metrics(experiment, loss_mean_v, metric_v, max_val_metric)
 
@@ -392,6 +390,7 @@ def log_train_metrics(experiment, t_loss, t_metric, lr):
     experiment['train/r2'].log(t_metric)
     experiment['train/lr'].log(lr)
 
+
 def log_train_classification(experiment, t_loss, t_metric, top3, top5):
     experiment['train/loss'].log(t_loss)
     experiment['train/top1_accuracy'].log(t_metric)
@@ -403,6 +402,7 @@ def log_val_metrics(experiment, v_loss, v_metric, best_v_metric):
     experiment['val/loss'].log(v_loss)
     experiment['val/r2'].log(v_metric)
     experiment['val/best_r2'].log(best_v_metric)
+
 
 def log_val_classification(experiment, loss, metric, max_val_metric, top3, top5):
     experiment['val/loss'].log(loss)
