@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from utils.utils import AverageMeter
+from utils.utils import AverageMeter, log_train_metrics, log_val_metrics, save_checkpoint
 from sklearn.metrics import r2_score, accuracy_score
 import time
 from torch.cuda.amp import GradScaler
@@ -343,29 +343,6 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
         rem_epochs = cfg.training.epochs - (i+1)
         rem_time = rem_epochs * epoch_time
         print('Epoch {} completed. Time to complete: {}. Estimated remaining time: {}'.format(i+1, epoch_time, format_time(rem_time)))
-
-
-def log_train_metrics(experiment, t_loss, t_metric):
-    experiment.log_metric('training_loss', t_loss)
-    experiment.log_metric('training_r2', t_metric)
-
-
-def log_val_metrics(experiment, v_loss, v_metric, best_v_metric):
-    experiment.log_metric('validation_loss', v_loss)
-    experiment.log_metric('validation_r2', v_metric)
-    experiment.log_metric('best_val_r2', best_v_metric)
-
-
-def save_checkpoint(save_file_path, model, optimizer):
-    if hasattr(model, 'module'):
-        model_state_dict = model.module.state_dict()
-    else:
-        model_state_dict = model.state_dict()
-    save_states = {
-        'model': model_state_dict,
-        'optimizer': optimizer.state_dict(),
-    }
-    torch.save(save_states, save_file_path)
 
 
 def format_time(time_as_seconds):
