@@ -1,12 +1,9 @@
 import numpy as np
-from skimage.util import random_noise
-from skimage.util import img_as_float32
-from skimage.util import crop
+from skimage.util import random_noise, img_as_float32, crop
 from skimage.color import rgb2gray
-from skimage.transform import resize
-from skimage.transform import rotate
-from random import choice
-from random import randint
+from skimage.transform import resize, rescale, rotate
+from random import choice, randint
+import math
 import time
 from omegaconf import OmegaConf, DictConfig
 import cv2
@@ -88,6 +85,12 @@ class DataAugmentations:
             time_rot = time.time()
             time_rot_diff = time_rot - time_tv
             print("Rotated frames. Time to process: {}".format(time_rot_diff))
+        if self.augmentations.zoom:
+            img = self.t_zoom(img)
+        if self.debug:
+            time_zoom = time.time()
+            time_zoom_diff = time_zoom - time_rot
+            print("Zoomed frames. Time to process: {}".format(time_zoom_diff))
 
         # Local changes
         if self.augmentations.local_blackout:
@@ -105,7 +108,7 @@ class DataAugmentations:
 
         return img.astype(np.float32)
 
-    def transform_size(self, img, fps, hr):
+    def transform_size(self, img, fps, hr, rwaves):
         '''
         Transforms the size/shape of the input image in different ways.
         :param img: The multidimensional input image. Shape is assumed to be (L,H,W,C).
@@ -113,6 +116,7 @@ class DataAugmentations:
         :param hr: The heartrate of the patient when the original input was recorded.
         :return: The transformed image.
         '''
+        initial_shape = img.shape
         time_start = time.time()
         if self.transforms.grayscale:
             img = self.t_grayscale_mean(img)
@@ -120,15 +124,21 @@ class DataAugmentations:
             time_gf = time.time()
             time_gf_diff = time_gf - time_start
             print("Image size after grayscale: {}, Time to process: {}".format(img.shape, time_gf_diff))
+        if self.transforms.rwave_data_only:
+            rwave_diff, rwave_indexes = self.calc_rwave_data(rwaves)
         if self.transforms.rescale_fps or self.transforms.resize_frames or self.transforms.rescale_fphb:
             assert not (self.transforms.rescale_fps and self.transforms.rescale_fphb)
-
             # Rescale length by either fps or fphb
             if self.transforms.rescale_fps and not self.transforms.target_fps == fps:
                 new_length = int(img.shape[0] * (self.transforms.target_fps/fps))
             elif self.transforms.rescale_fphb:
-                curr_fphb = self.calc_fphb(hr, fps)
-                new_length = int(img.shape[0]*(self.transforms.target_fphb/curr_fphb))
+                if self.transforms.rwave_data_only:
+                    curr_fphb = self.calc_rwave_fphb(rwave_diff, fps)
+                else:
+                    curr_fphb = self.calc_fphb(hr, fps)
+                new_length = math.ceil(img.shape[0]*(self.transforms.target_fphb/curr_fphb))
+                if new_length < self.transforms.target_fphb:
+                    new_length = self.transforms.target_fphb
             else:
                 new_length = img.shape[0]
 
@@ -147,18 +157,26 @@ class DataAugmentations:
             time_rescale = time.time()
             time_fps_diff = time_rescale - time_gf
             print("Image size after rescaling: {}, Time to process: {}".format(img.shape, time_fps_diff))
+        assert not (self.transforms.loop_length and self.transforms.crop_length and self.transforms.rwave_data_only)
         if self.transforms.crop_sides or self.transforms.crop_length:
             img = self.t_crop(img)
         if self.debug:
             time_crop = time.time()
             time_crop_diff = time_crop - time_rescale
             print("Image size after cropping: {}, Time to process: {}".format(img.shape, time_crop_diff))
+        if self.transforms.rwave_data_only:
+            new_fps = fps * (self.transforms.target_fphb / curr_fphb)
+            img = self.t_crop_rwave(img, rwaves, rwave_indexes, new_fps)
         if self.transforms.loop_length:
             img = self.t_loop_length(img)
+        if self.transforms.pad_length:
+            img = self.t_pad_length(img)
         if self.debug:
             time_loop = time.time()
             time_loop_diff = time_loop - time_crop
             print("Image size after length looping: {}, Time to process: {}".format(img.shape, time_loop_diff))
+        if img.shape != (self.transforms.target_length, self.transforms.target_height, self.transforms.target_width, img.shape[3]):
+            raise ValueError("Final video after transformation is not correct shape. Current shape is {} Original shape is {}".format(img.shape, initial_shape))
         return img
 
     def t_grayscale_custom(self, img):
@@ -247,12 +265,23 @@ class DataAugmentations:
 
     def calc_fphb(self, hr, fps):
         '''
-        Calculates frames per heartbeat
+        Calculates frames per heartbeat based on heartrate data
         :param hr: The heartrate (int)
         :param fps: Frames per second (int)
         :return: Frames per heartbeat
         '''
         hbs = hr/60
+        fphb = fps / hbs
+        return fphb
+
+    def calc_rwave_fphb(self, rwave_diff, fps):
+        '''
+        Calculates frames per heartbeat based on rwave data
+        :param rwave_diff: The length of a heartbeat in seconds, calculated from rwave data
+        :param fps: Frames per second (int)
+        :return: Frames per heartbeat
+        '''
+        hbs = 1 / rwave_diff
         fphb = fps / hbs
         return fphb
 
@@ -273,6 +302,18 @@ class DataAugmentations:
             img = np.pad(img, pad_width=pad_sequence, constant_values=self.black_val)
         return img
 
+    def t_pad_length(self, img):
+        '''
+        Pads the length (end) of a sequence by adding black frames.
+        :param img: The input image with shape (L,H,W,C)
+        :return: The image with the new shape (self.transforms.target_length,H,W,C)
+        '''
+        diff = self.transforms.target_length - img.shape[0]
+        if diff > 0:
+            pad_sequence = ((0, diff), (0, 0), (0, 0), (0, 0))
+            img = np.pad(img, pad_width=pad_sequence, constant_values=self.black_val)
+        return img
+
     def t_loop_length(self, img):
         '''
         Extends the duration of an image sequence by looping it until a target length has been reached.
@@ -289,20 +330,54 @@ class DataAugmentations:
 
     def t_crop(self, img):
         '''
-        Crops the sides of all frames in a image sequence by a fixed value. (Fix this into a supplied argument instead)
+        Randomly crops the video length to a fixed length.
         :param img: Input image to be cropped with shape (L,H,W,C)
-        :return: The cropped image with shape (L,H-H/5,W-W/10,C)
+        :return: The cropped image with shape (self.transforms.target_length,H,W,C)
         '''
         # Crop edges of frames
         crop_sequence = [(0, 0), (0, 0), (0, 0), (0, 0)]
-        if self.transforms.crop_sides:
-            crop_sequence[1] = (int(img.shape[1] / 10), int(img.shape[1] / 10))
-            crop_sequence[2] = (int(img.shape[2] / 20), int(img.shape[2] / 20))
         if self.transforms.crop_length and img.shape[0] > self.transforms.target_length:
             diff = img.shape[0] - self.transforms.target_length
-            rand = randint(0, diff)
-            crop_sequence[0] = (rand, diff - rand)
+            crop_sequence[0] = (0, diff)
         return crop(img, crop_width=tuple(crop_sequence)).astype(np.uint8)
+
+    def t_crop_rwave(self, video, rwaves, rwave_indexes, fps):
+        '''
+        Crops the length of the input video the frames between the selected rwaves.
+        The length of the video is equal to the frames per heartbeat value that the video is normalized to.
+        :param video: Input video to be cropped with shape (L,H,W,C)
+        :param rwaves: Array with timestamps for rwaves in milliseconds
+        :param rwave_indexes: The indexes of the selected rwaves
+        :param fps: The fps of the input video
+        :return: The cropped image with shape (fphb,H,W,C)
+        '''
+        # Base case
+        if video.shape[0] == self.transforms.target_fphb:
+            return video
+        start_frame = int((rwaves[rwave_indexes[0]] / 1000) * fps)
+        end_frame = int((rwaves[rwave_indexes[1]] / 1000) * fps)
+        # Need to fix some croppings as int rounding makes some videos 1 frame too long or too short
+        if end_frame > video.shape[0]:
+            end_frame -= 1
+            start_frame -= 1
+        if (end_frame - start_frame) < self.transforms.target_fphb:
+            #print("Current length incorrect. Shape: {} Start: {} End: {}".format(video.shape, start_frame, end_frame))
+            if end_frame < video.shape[0]:
+                end_frame += 1
+            elif start_frame > 0:
+                start_frame -= 1
+            else:
+                raise ValueError("Cannot extend crop into correct shape")
+        elif (end_frame - start_frame) > self.transforms.target_fphb:
+            #print("Current length incorrect. Shape: {} Start: {} End: {}".format(video.shape, start_frame, end_frame))
+            if start_frame < (end_frame - 1):
+                start_frame += 1
+            elif end_frame > (start_frame + 1):
+                end_frame -= 1
+            else:
+                raise ValueError("Cannot extend crop into correct shape")
+        rwave_frames = video[start_frame:end_frame]
+        return rwave_frames
 
     def t_translate_v(self, video):
         '''
@@ -419,3 +494,53 @@ class DataAugmentations:
                     frame[ints_pos_h:ints_pos_h+ints_size_h, ints_pos_w:ints_pos_w+ints_size_w] + ints_val
         video = np.clip(video, self.black_val, self.white_val)
         return video.transpose(1, 2, 3, 0)
+
+    def calc_rwave_data(self, rwaves):
+        max_diff = 0
+        max_diff_indexes = (0, 0)
+        for i, _ in enumerate(rwaves):
+            if i != 0:
+                diff = (rwaves[i] - rwaves[i - 1]) / 1000
+                if diff > max_diff:
+                    max_diff = diff
+                    max_diff_indexes = (i - 1, i)
+        return max_diff, max_diff_indexes
+
+    def t_zoom(self, img):
+        zoom_factor = 1 + np.random.normal(0, self.augmentations.zoom_factor_std_dev)
+        # Sometimes normal distribution can give too extreme results.
+        # In those cases we dont zoom.
+        if zoom_factor < 0:
+            zoom_factor = 1
+        new_img = np.zeros_like(img)
+        new_img = new_img + self.black_val
+        diff_height = None
+        diff_width = None
+        for i, frame in enumerate(img):
+            zoom_frame = rescale(frame, zoom_factor, mode='constant', cval=self.black_val, preserve_range=True,
+                                 multichannel=True)
+            # Calculate offsets for zoomed frame
+            if diff_height is None or diff_width is None:
+                diff_height = zoom_frame.shape[0] - img.shape[1]
+                diff_width = zoom_frame.shape[1] - img.shape[2]
+                # Base case
+                if zoom_factor == 1 or (diff_height == 0 and diff_width == 0):
+                    return img
+                elif zoom_factor > 1:
+                    diff_h_start = int(diff_height / 2)
+                    diff_h_end = img.shape[1] + diff_h_start
+                    diff_w_start = int(diff_width / 2)
+                    diff_w_end = img.shape[2] + diff_w_start
+                elif zoom_factor < 1:
+                    diff_h_start = int(abs(diff_height) / 2)
+                    diff_h_end = zoom_frame.shape[0] + diff_h_start
+                    diff_w_start = int(abs(diff_width) / 2)
+                    diff_w_end = zoom_frame.shape[1] + diff_w_start
+
+            # Set new frame to zoomed frame
+            if zoom_factor > 1:
+                new_img[i] = zoom_frame[diff_h_start:diff_h_end, diff_w_start:diff_w_end, :]
+            elif zoom_factor < 1:
+                new_img[i, abs(diff_h_start):abs(diff_h_end), abs(diff_w_start):abs(diff_w_end), :] = zoom_frame
+        return new_img
+

@@ -2,11 +2,12 @@ import torch
 from torch.utils.data import DataLoader, WeightedRandomSampler, RandomSampler
 from models import custom_cnn, resnext, i3d_bert, multi_stream
 from training import train_and_validate
-import neptune
+import neptune.new as neptune
 import hydra
 from data.npy_dataset import NPYDataset
-from data.multi_stream_dataset import MultiStreamDataset
+from data.multi_stream_dataset import MultiStreamDataset, MultiStreamDatasetNoFlow
 from omegaconf import DictConfig
+from collections import OrderedDict
 import logging
 import os
 
@@ -18,7 +19,7 @@ logging.getLogger('numexpr').setLevel(logging.WARNING)
 def main(cfg: DictConfig) -> None:
 
     assert cfg.model.name in ['ccnn', 'resnext', 'i3d', 'i3d_bert', 'i3d_bert_2stream']
-    assert cfg.data.type in ['img', 'flow', 'multi-stream']
+    assert cfg.data.type in ['img', 'flow', 'multi-stream', 'no-flow']
 
     tags = []
 
@@ -36,20 +37,40 @@ def main(cfg: DictConfig) -> None:
                                        conv1_t_stride=cfg.model.conv1_t_stride)
         model.load_state_dict(torch.load(cfg.model.pre_trained_checkpoint))
     elif cfg.model.name == 'i3d':
+
         tags.append('I3D')
-        if cfg.training.continue_training:
-            checkpoint = cfg.model.best_model
-        else:
-            checkpoint = cfg.model.pre_trained_checkpoint
         if cfg.data.type == 'img':
             tags.append('spatial')
+            if cfg.training.continue_training:
+                checkpoint = cfg.model.best_model
+            else:
+                checkpoint = cfg.model.pre_trained_checkpoint
             model = i3d_bert.inception_model(checkpoint, cfg.model.n_classes, cfg.model.n_input_channels,
                                              cfg.model.pre_n_classes, cfg.model.pre_n_input_channels)
         elif cfg.data.type == 'flow':
             tags.append('temporal')
             tags.append('TVL1')
+            if cfg.training.continue_training:
+                checkpoint = cfg.model.best_model
+            else:
+                checkpoint = cfg.model.pre_trained_checkpoint
             model = i3d_bert.inception_model_flow(checkpoint, cfg.model.n_classes, cfg.model.n_input_channels,
                                                   cfg.model.pre_n_classes, cfg.model.pre_n_input_channels)
+        elif cfg.data.type == 'multi-stream':
+            tags.append('multi-stream')
+            tags.append('TVL1')
+            if cfg.model.shared_weights:
+                tags.append('shared-weights')
+                model_img = i3d_bert.Inception3D_Maxpool(cfg.model.pre_trained_checkpoint_img, cfg.model.n_classes,
+                                                         cfg.model.n_input_channels_img, cfg.model.pre_n_classes,
+                                                         cfg.model.pre_n_input_channels_img)
+                model_flow = i3d_bert.Inception3D_Maxpool(cfg.model.pre_trained_checkpoint_flow, cfg.model.n_classes,
+                                                         cfg.model.n_input_channels_flow, cfg.model.pre_n_classes,
+                                                         cfg.model.pre_n_input_channels_flow)
+                model = multi_stream.MultiStreamShared(model_img, model_flow, len(cfg.data.allowed_views) * 2,
+                                                       cfg.model.n_classes)
+                if cfg.optimizer.loss_function == 'all-threshold':
+                    model.thresholds = torch.nn.Parameter(torch.tensor(range(10)).float(), requires_grad=True)
     elif cfg.model.name == 'i3d_bert':
         tags.append('I3D')
         tags.append('BERT')
@@ -72,10 +93,12 @@ def main(cfg: DictConfig) -> None:
                 if cfg.model.shared_weights:
                     tags.append('shared-weights')
                     model_img, model_flow = create_two_stream_models(cfg, '', '')
-                    model = multi_stream.MultiStreamShared(model_img, model_flow, len(state_dict['Linear_layer.weight'][0]))
+                    model = multi_stream.MultiStreamShared(model_img, model_flow, len(state_dict['Linear_layer.weight'][0])/cfg.model.pre_n_classes, cfg.model.pre_n_classes)
                     model.load_state_dict(state_dict)
-                    if not len(state_dict['Linear_layer.weight'][0]) == len(cfg.data.allowed_views) * 2:
-                        model.replace_fc(len(cfg.data.allowed_views) * 2)
+                    if not int(len(state_dict['Linear_layer.weight'][0])/cfg.model.pre_n_classes) == len(cfg.data.allowed_views) * 2 or not cfg.model.pre_n_classes == cfg.model.n_classes:
+                        model.replace_fc(len(cfg.data.allowed_views) * 2, cfg.model.n_classes)
+                    if cfg.optimizer.loss_function == 'all-threshold':
+                        model.thresholds = torch.nn.Parameter(torch.tensor(range(10)).float(), requires_grad=True)
                 else:
                     model_dict = {}
                     for view in cfg.data.allowed_views:
@@ -85,6 +108,33 @@ def main(cfg: DictConfig) -> None:
                         model_dict[m_img_name] = model_img
                         model_dict[m_flow_name] = model_flow
                     model = multi_stream.MultiStream(model_dict)
+            if cfg.data.type == 'no-flow':
+                tags.append('no-flow')
+                tags.append('multi-stream')
+                if cfg.model.shared_weights:
+                    tags.append('shared-weights')
+                    model_img = i3d_bert.rgb_I3D64f_bert2_FRMB('', cfg.model.length,
+                                                               cfg.model.n_classes, cfg.model.n_input_channels_img,
+                                                               cfg.model.pre_n_classes,
+                                                               cfg.model.pre_n_input_channels_img)
+                    model = multi_stream.MSNoFlowShared(model_img, len(cfg.data.allowed_views)*2, cfg.model.pre_n_classes)
+                    img_state_dict = OrderedDict({k: state_dict[k] for k in state_dict.keys() if
+                                                  (k[0:9] == 'Model_img' or k[0:12] == 'Linear_layer')})
+                    model.load_state_dict(img_state_dict)
+                    model.replace_fc(len(cfg.data.allowed_views), cfg.model.n_classes)
+                    if cfg.optimizer.loss_function == 'all-threshold':
+                        model.thresholds = torch.nn.Parameter(torch.tensor(range(10)).float(), requires_grad=True)
+                else:
+                    model_dict = {}
+                    for view in cfg.data.allowed_views:
+                        m_img_name = 'model_img_' + str(view)
+                        model_img = i3d_bert.rgb_I3D64f_bert2_FRMB('', cfg.model.length,
+                                                                   cfg.model.n_classes, cfg.model.n_input_channels_img,
+                                                                   cfg.model.pre_n_classes,
+                                                                   cfg.model.pre_n_input_channels_img)
+                        model_dict[m_img_name] = model_img
+                    model = multi_stream.MultiStream(model_dict)
+                    model.load_state_dict(state_dict)
         else:
             if cfg.data.type == 'img':
                 tags.append('spatial')
@@ -104,8 +154,10 @@ def main(cfg: DictConfig) -> None:
                     tags.append('shared-weights')
                     model_img, model_flow = create_two_stream_models(cfg, cfg.model.pre_trained_checkpoint_img,
                                                                      cfg.model.pre_trained_checkpoint_flow)
-                    model = multi_stream.MultiStreamShared(model_img, model_flow, len(cfg.data.allowed_views)*2,
+                    model = multi_stream.MultiStreamShared(model_img, model_flow, len(cfg.data.allowed_views) * 2,
                                                            cfg.model.n_classes)
+                    if cfg.optimizer.loss_function == 'all-threshold':
+                        model.thresholds = torch.nn.Parameter(torch.tensor(range(10)).float(), requires_grad=True)
                 else:
                     model_dict = {}
                     for view in cfg.data.allowed_views:
@@ -116,6 +168,29 @@ def main(cfg: DictConfig) -> None:
                         model_dict[m_img_name] = model_img
                         model_dict[m_flow_name] = model_flow
                     model = multi_stream.MultiStream(model_dict, cfg.model.n_classes)
+            if cfg.data.type == 'no-flow':
+                tags.append('no-flow')
+                tags.append('multi-stream')
+                if cfg.model.shared_weights:
+                    tags.append('shared-weights')
+                    model_img = i3d_bert.rgb_I3D64f_bert2_FRMB(cfg.model.pre_trained_checkpoint_img, cfg.model.length,
+                                                               cfg.model.n_classes, cfg.model.n_input_channels_img,
+                                                               cfg.model.pre_n_classes,
+                                                               cfg.model.pre_n_input_channels_img)
+                    model = multi_stream.MSNoFlowShared(model_img, len(cfg.data.allowed_views), cfg.model.n_classes)
+                    if cfg.optimizer.loss_function == 'all-threshold':
+                        model.thresholds = torch.nn.Parameter(torch.tensor(range(10)).float(), requires_grad=True)
+                else:
+                    model_dict = {}
+                    for view in cfg.data.allowed_views:
+                        m_img_name = 'model_img_' + str(view)
+                        model_img = i3d_bert.rgb_I3D64f_bert2_FRMB(cfg.model.pre_trained_checkpoint_img,
+                                                                   cfg.model.length,
+                                                                   cfg.model.n_classes, cfg.model.n_input_channels_img,
+                                                                   cfg.model.pre_n_classes,
+                                                                   cfg.model.pre_n_input_channels_img)
+                        model_dict[m_img_name] = model_img
+                    model = multi_stream.MultiStream(model_dict, cfg.model.n_classes)
 
     train_data_set, val_data_set = create_data_sets(cfg)
 
@@ -123,13 +198,13 @@ def main(cfg: DictConfig) -> None:
 
     experiment = None
     if cfg.logging.logging_enabled:
-        neptune.init(cfg.logging.project_name)
         experiment_params = {**dict(cfg.data_loader), **dict(cfg.transforms), **dict(cfg.augmentations),
                              **dict(cfg.performance), **dict(cfg.training), **dict(cfg.optimizer), **dict(cfg.model),
-                             **dict(cfg.evaluation), 'data_stream': cfg.data.type, 'view': cfg.data.name,
+                             **dict(cfg.evaluation), 'target_file': cfg.data.train_targets, 'data_stream': cfg.data.type, 'view': cfg.data.name,
                              'train_dataset_size': len(train_data_loader.dataset),
                              'val_dataset_size': len(val_data_loader.dataset)}
-        experiment = neptune.create_experiment(name=cfg.logging.experiment_name, params=experiment_params, tags=tags)
+        experiment = neptune.init(project=cfg.logging.project_name, name=cfg.logging.experiment_name, tags=tags)
+        experiment['parameters'] = experiment_params
 
     if not os.path.exists(cfg.training.checkpoint_save_path):
         os.makedirs(cfg.training.checkpoint_save_path)
@@ -146,10 +221,10 @@ def create_data_loaders(cfg, train_d_set, val_d_set):
         sampler = RandomSampler(train_d_set)
     train_data_loader = DataLoader(train_d_set, batch_size=cfg.data_loader.batch_size_train,
                                    num_workers=cfg.data_loader.n_workers, drop_last=cfg.data_loader.drop_last,
-                                   sampler=sampler)
+                                   sampler=sampler, pin_memory=True)
 
     val_data_loader = DataLoader(val_d_set, batch_size=cfg.data_loader.batch_size_eval,
-                                 num_workers=cfg.data_loader.n_workers, drop_last=cfg.data_loader.drop_last)
+                                 num_workers=cfg.data_loader.n_workers, drop_last=cfg.data_loader.drop_last, pin_memory=True)
 
     return train_data_loader, val_data_loader
 
@@ -157,6 +232,8 @@ def create_data_loaders(cfg, train_d_set, val_d_set):
 def create_data_sets(cfg):
     if cfg.data.type == 'multi-stream':
         dataset_c = MultiStreamDataset
+    elif cfg.data.type == 'no-flow':
+        dataset_c = MultiStreamDatasetNoFlow
     else:
         dataset_c = NPYDataset
     # Create DataLoaders for training and validation

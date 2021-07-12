@@ -1,11 +1,12 @@
 import torch
 import torch.nn as nn
-from utils.utils import AverageMeter, log_train_metrics, log_val_metrics, save_checkpoint
-from sklearn.metrics import r2_score, accuracy_score
+from utils.utils import AverageMeter
+from sklearn.metrics import r2_score, accuracy_score, top_k_accuracy_score
 import time
 from torch.cuda.amp import GradScaler
 from torch.cuda.amp import autocast
-from hinge_loss import HingeLossRegression
+from loss_functions.hinge_loss import HingeLossRegression
+from loss_functions.ordinal_regression import OrdinalRegressionAT, get_ORAT_labels
 import os
 import numpy as np
 import pandas as pd
@@ -28,13 +29,6 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
     # CUDNN Auto-tuner. Use True when input size and model is static
     torch.backends.cudnn.benchmark = cfg.performance.cuddn_auto_tuner
 
-    if cfg.model.n_classes > 1:
-        metric_name = 'Accuracy'
-        goal_type = 'classification'
-    else:
-        metric_name = 'R2'
-        goal_type = 'regression'
-
     if cfg.training.freeze_lower:
         for p in model.parameters():
             p.requires_grad = False
@@ -43,18 +37,24 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
 
     # Create Criterion and Optimizer
     if cfg.optimizer.loss_function == 'hinge':
+        metric_name = 'R2'
+        goal_type = 'regression'
         # Set loss criterion
         criterion = HingeLossRegression(cfg.optimizer.loss_epsilon, reduction=None)
         # Hinge loss is dependent on L2 regularization so we cannot use AdamW
         optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()),
                                      lr=cfg.optimizer.learning_rate, weight_decay=cfg.optimizer.weight_decay)
     elif cfg.optimizer.loss_function == 'mse':
+        metric_name = 'R2'
+        goal_type = 'regression'
         # Set loss criterion
         criterion = nn.MSELoss(reduction='none')
         # Set optimizer
         optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()),
                                       lr=cfg.optimizer.learning_rate, weight_decay=cfg.optimizer.weight_decay)
     elif cfg.optimizer.loss_function == 'cross-entropy':
+        metric_name = 'Accuracy'
+        goal_type = 'classification'
         # Get counts for each class
         # Instantiate class counts to 1 instead of 0 to prevent division by zero in case data is missing
         class_counts = np.array(cfg.model.n_classes*[1])
@@ -66,6 +66,23 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
         weights = weights / weights.sum()
         weights = torch.FloatTensor(weights).cuda()
         criterion = nn.CrossEntropyLoss(weight=weights, reduction='none')
+        optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()),
+                                      lr=cfg.optimizer.learning_rate, weight_decay=cfg.optimizer.weight_decay)
+
+    elif cfg.optimizer.loss_function == 'all-threshold':
+        metric_name = 'Accuracy'
+        goal_type = 'ordinal-regression'
+        # Get counts for each class
+        # Instantiate class counts to 1 instead of 0 to prevent division by zero in case data is missing
+        class_counts = np.array(len(train_data_loader.dataset.unique_exams['target'].unique())*[1])
+        for i in train_data_loader.dataset.unique_exams['target'].value_counts().index:
+            class_counts[i] = train_data_loader.dataset.unique_exams['target'].value_counts().loc[i]
+        # Calculate the inverse normalized ratio for each class
+        weights = class_counts / class_counts.sum()
+        weights = 1 / weights
+        weights = weights / weights.sum()
+        weights = torch.FloatTensor(weights).cuda()
+        criterion = OrdinalRegressionAT(sample_weights=weights, reduction=None)
         optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()),
                                       lr=cfg.optimizer.learning_rate, weight_decay=cfg.optimizer.weight_decay)
 
@@ -89,6 +106,8 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
     use_scheduler = cfg.optimizer.use_scheduler
     if use_scheduler:
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=cfg.optimizer.s_patience, factor=cfg.optimizer.s_factor)
+        #scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=0.01, total_steps=len(train_data_loader))
+        #scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[5,150,350], gamma=0.1)
 
     # Maximum value used for gradient clipping = max fp16/2
     gradient_clipping = cfg.performance.gradient_clipping
@@ -114,6 +133,9 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
         data_time_v = AverageMeter()
         losses_v = AverageMeter()
         metric_values_v = AverageMeter()
+        if goal_type == 'classification':
+            top3_values_v = AverageMeter()
+            top5_values_v = AverageMeter()
 
         end_time_t = time.time()
         # Training
@@ -145,14 +167,17 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
             # Get model train output and train loss
             with autocast(enabled=use_half_prec):
                 outputs_t = model(inputs_t)
-                loss_t = criterion(outputs_t, targets_t)
+                if goal_type == 'ordinal-regression':
+                    loss_t = criterion(outputs_t, targets_t, model.module.thresholds)
+                else:
+                    loss_t = criterion(outputs_t, targets_t)
                 loss_mean_t = loss_t.mean()
             if cfg.data_loader.weighted_sampler:
                 for index, loss in zip(indexes_t, loss_t.cpu().detach()):
                     loss_ratio = loss/loss_mean_t.cpu().detach()
                     loss_ratio = torch.clamp(loss_ratio, min=0.1, max=3)
                     train_data_loader.sampler.weights[index] = loss_ratio
-            # Backwards pass and step
+            # Zero grads
             optimizer.zero_grad()
 
             # Backwards pass
@@ -163,9 +188,9 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                 scaler.unscale_(optimizer)
                 torch.nn.utils.clip_grad_value_(model.parameters(), max_norm)
 
+            # Step and update
             scaler.step(optimizer)
             scaler.update()
-
             # Calculate and update metrics
             try:
                 if not torch.isfinite(outputs_t).all():
@@ -174,9 +199,12 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                 metric_outputs_t = outputs_t.cpu().detach().numpy()
                 if goal_type == 'regression':
                     metric_t = r2_score(metric_targets_t, metric_outputs_t)
-                else:
+                elif goal_type == 'classification':
                     predictions_t = np.argmax(metric_outputs_t, 1)
                     metric_t = accuracy_score(metric_targets_t, predictions_t)
+                elif goal_type == 'ordinal-regression':
+                    labels_t = get_ORAT_labels(metric_outputs_t, model.module.thresholds)
+                    metric_t = accuracy_score(metric_targets_t, labels_t)
                 metric_values_t.update(metric_t)
                 losses_t.update(loss_mean_t)
             except ValueError as ve:
@@ -193,7 +221,6 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                       'Training {metric_name} Score: {metric.val:.3f} ({metric.avg:.3f}) \t'
                       .format(j+1, len(train_data_loader), i + 1, batch_time=batch_time_t, data_time=data_time_t,
                               loss=losses_t, metric_name=metric_name, metric=metric_values_t))
-
             # Reset end timer
             end_time_t = time.time()
         
@@ -207,7 +234,7 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                       metric=metric_values_t))
 
         if cfg.logging.logging_enabled:
-            log_train_metrics(experiment, losses_t.avg, metric_values_t.avg)
+            log_train_metrics(experiment, losses_t.avg, metric_values_t.avg, optimizer.param_groups[0]['lr'])
 
         # Validation
 
@@ -215,7 +242,10 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
         if i % 10 == 0:
             end_time_v = time.time()
             model.eval()
-            all_result_v = np.zeros((0))
+            if goal_type == 'classification':
+                all_result_v = np.zeros((0, cfg.model.n_classes))
+            else:
+                all_result_v = np.zeros((0))
             all_target_v = np.zeros((0))
             all_uids_v = np.zeros((0))
             all_loss_v = np.zeros((0))
@@ -238,7 +268,10 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                     # Get model validation output and validation loss
                     with autocast(enabled=use_half_prec):
                         outputs_v = model(inputs_v)
-                        loss_v = criterion(outputs_v, targets_v)
+                        if goal_type == 'ordinal-regression':
+                            loss_v = criterion(outputs_v, targets_v, model.module.thresholds)
+                        else:
+                            loss_v = criterion(outputs_v, targets_v)
                         loss_mean_v = loss_v.mean()
 
                 # Update timer for batch
@@ -246,14 +279,14 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
 
                 # Update metrics
                 if cfg.evaluation.use_best_sample:
-                    if goal_type == 'regression':
-                        all_result_v = np.concatenate((all_result_v, outputs_v.squeeze(axis=1).cpu().detach().numpy()))
-                        all_target_v = np.concatenate((all_target_v, targets_v.squeeze(axis=1).cpu().detach().numpy()))
-                        all_loss_v = np.concatenate((all_loss_v, loss_v.cpu().squeeze(axis=1).detach().numpy()))
-                    else:
-                        all_result_v = np.concatenate((all_result_v, np.argmax(outputs_v.cpu().detach().numpy(), 1)))
+                    if goal_type == 'classification':
+                        all_result_v = np.concatenate((all_result_v, outputs_v.cpu().detach().numpy()))
                         all_target_v = np.concatenate((all_target_v, targets_v.cpu().detach().numpy()))
                         all_loss_v = np.concatenate((all_loss_v, loss_v.cpu().detach().numpy()))
+                    else:
+                        all_result_v = np.concatenate((all_result_v, outputs_v.squeeze(dim=1).cpu().detach().numpy()))
+                        all_target_v = np.concatenate((all_target_v, targets_v.squeeze(dim=1).cpu().detach().numpy()))
+                        all_loss_v = np.concatenate((all_loss_v, loss_v.cpu().squeeze(dim=1).detach().numpy()))
                     all_uids_v = np.concatenate((all_uids_v, uids_v))
 
                 else:
@@ -261,9 +294,12 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                     metric_outputs_v = outputs_v.cpu().detach().numpy()
                     if goal_type == 'regression':
                         metric_v = r2_score(metric_targets_v, metric_outputs_v)
-                    else:
+                    elif goal_type == 'classification':
                         predictions_v = np.argmax(metric_outputs_v, 1)
                         metric_v = accuracy_score(metric_targets_v, predictions_v)
+                    elif goal_type == 'ordinal-regression':
+                        labels_v = get_ORAT_labels(metric_outputs_v, model.module.thresholds)
+                        metric_v = accuracy_score(metric_targets_v, labels_v)
                     metric_values_v.update(metric_v)
                     losses_v.update(loss_mean_v)
 
@@ -272,7 +308,7 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                               'Validation Time: {batch_time.val:.3f} ({batch_time.avg:.3f}) \t '
                               'Validation Data Time: {data_time.val:.3f} ({data_time.avg:.3f}) \t '
                               'Validation Loss: {loss.val:.4f} ({loss.avg:.4f}) \t '
-                              'Validation {metric_name} Score: {metric.val:.3f} ({metric.avg:.3f}) \t'
+                              'Validation {metric_name}: {metric.val:.3f} ({metric.avg:.3f})\t'
                               .format(k + 1, len(val_data_loader), i + 1, batch_time=batch_time_v, data_time=data_time_v,
                                       loss=losses_v, metric_name=metric_name, metric=metric_values_v))
 
@@ -281,11 +317,11 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
             if cfg.evaluation.use_best_sample:
                 # As results are over all possible combinations of views in each examination
                 # each different combination needs to have a weight equal to its ratio.
-                val_data = np.array((all_uids_v, all_result_v, all_target_v, all_loss_v))
+                val_data = np.array((all_uids_v, all_loss_v))
                 val_data = val_data.transpose(1, 0)
-                pd_val_data = pd.DataFrame(val_data, columns=['us_id', 'result', 'target', 'loss'])
-                pd_val_data[['result', 'target', 'loss']] = pd_val_data[['result', 'target', 'loss']].astype(np.float32)
-                val_ue = pd_val_data.drop_duplicates(subset='us_id')[['us_id', 'target']]
+                pd_val_data = pd.DataFrame(val_data, columns=['us_id', 'loss'])
+                pd_val_data['loss'] = pd_val_data['loss'].astype(np.float32)
+                val_ue = pd_val_data.drop_duplicates(subset='us_id')[['us_id', 'loss']]
                 all_mean_loss = []
                 for ue in val_ue.itertuples():
                     exam_results = pd_val_data[pd_val_data['us_id'] == ue.us_id]
@@ -297,13 +333,17 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                         pd_val_data.loc[indx, 'metric_weight'] = weight
                 np_loss = np.array(all_mean_loss, dtype=np.float32)
                 loss_mean_v = np_loss.mean()
-                targets = pd_val_data['target'].to_numpy()
-                results = pd_val_data['result'].to_numpy()
                 weights = pd_val_data['metric_weight'].to_numpy()
                 if goal_type == 'regression':
-                    metric_v = r2_score(targets, results, sample_weight=weights)
-                else:
-                    metric_v = accuracy_score(targets.astype(np.int), results.astype(np.int), sample_weight=weights)
+                    metric_v = r2_score(all_target_v, all_result_v, sample_weight=weights)
+                elif goal_type == 'classification':
+                    top3_v = top_k_accuracy_score(all_target_v.astype(np.int), all_result_v, k=3, sample_weight=weights)
+                    top5_v = top_k_accuracy_score(all_target_v.astype(np.int), all_result_v, k=5, sample_weight=weights)
+                    predictions_v = np.argmax(all_result_v, 1)
+                    metric_v = accuracy_score(all_target_v.astype(np.int), predictions_v, sample_weight=weights)
+                elif goal_type == 'ordinal-regression':
+                    labels_v = get_ORAT_labels(all_result_v, model.module.thresholds)
+                    metric_v = accuracy_score(all_target_v.astype(np.int), labels_v, sample_weight=weights)
             else:
                 loss_mean_v = losses_v.avg
                 metric_v = metric_values_v.avg
@@ -313,29 +353,29 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
                   'Validation Time: {batch_time.avg:.3f} \t '
                   'Validation Data Time: {data_time.avg:.3f} \t '
                   'Validation Loss: {loss:.4f} \t '
-                  'Validation {metric_name} score: {metric:.3f} \t'
+                  'Validation {metric_name}: {metric:.3f}\t'
                   .format(i+1, batch_time=batch_time_v, data_time=data_time_v, loss=loss_mean_v, metric_name=metric_name
                           , metric=metric_v))
             if goal_type == 'regression':
                 print('Example targets: {} \n Example outputs: {}'.format(torch.squeeze(targets_v), torch.squeeze(outputs_v)))
             
-        if use_scheduler:
-            scheduler.step(loss_mean_v)
+            if use_scheduler:
+                scheduler.step(loss_mean_v)
 
-        if cfg.training.checkpointing_enabled and cfg.logging.logging_enabled:
-            if metric_v > max_val_metric:
-                checkpoint_name = cfg.training.checkpoint_save_path + cfg.model.name + '_' + cfg.data.type + '_'\
-                                  + cfg.data.name + '_exp_' + experiment.id + '.pth'
-                save_checkpoint(checkpoint_name, model, optimizer)
-                max_val_metric = metric_v
-        elif cfg.training.checkpointing_enabled:
-            if metric_v > max_val_metric:
-                checkpoint_name = cfg.training.checkpoint_save_path + cfg.model.name + '_' + cfg.data.type + '_'\
-                                  + cfg.data.name + '_test' + '.pth'
-                save_checkpoint(checkpoint_name, model, optimizer)
-                max_val_metric = metric_v
+            if cfg.training.checkpointing_enabled and cfg.logging.logging_enabled:
+                experiment_id = experiment["sys/id"].fetch()
+                if metric_v > max_val_metric:
+                    checkpoint_name = cfg.training.checkpoint_save_path + cfg.model.name + '_' + cfg.data.type + '_'\
+                                      + cfg.data.name + '_exp_' + experiment_id + '.pth'
+                    save_checkpoint(checkpoint_name, model, optimizer)
+                    max_val_metric = metric_v
+            elif cfg.training.checkpointing_enabled:
+                if metric_v > max_val_metric:
+                    checkpoint_name = cfg.training.checkpoint_save_path + cfg.model.name + '_' + cfg.data.type + '_'\
+                                      + cfg.data.name + '_test' + '.pth'
+                    save_checkpoint(checkpoint_name, model, optimizer)
+                    max_val_metric = metric_v
 
-        if i % 10 == 0:
             if cfg.logging.logging_enabled:
                 log_val_metrics(experiment, loss_mean_v, metric_v, max_val_metric)
 
@@ -343,6 +383,44 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
         rem_epochs = cfg.training.epochs - (i+1)
         rem_time = rem_epochs * epoch_time
         print('Epoch {} completed. Time to complete: {}. Estimated remaining time: {}'.format(i+1, epoch_time, format_time(rem_time)))
+
+
+def log_train_metrics(experiment, t_loss, t_metric, lr):
+    experiment['train/loss'].log(t_loss)
+    experiment['train/r2'].log(t_metric)
+    experiment['train/lr'].log(lr)
+
+
+def log_train_classification(experiment, t_loss, t_metric, top3, top5):
+    experiment['train/loss'].log(t_loss)
+    experiment['train/top1_accuracy'].log(t_metric)
+    experiment['train/top3_accuracy'].log(top3)
+    experiment['train/top5_accuracy'].log(top5)
+
+
+def log_val_metrics(experiment, v_loss, v_metric, best_v_metric):
+    experiment['val/loss'].log(v_loss)
+    experiment['val/r2'].log(v_metric)
+    experiment['val/best_r2'].log(best_v_metric)
+
+
+def log_val_classification(experiment, loss, metric, max_val_metric, top3, top5):
+    experiment['val/loss'].log(loss)
+    experiment['val/top1_accuracy'].log(metric)
+    experiment['val/top3_accuracy'].log(top3)
+    experiment['val/top5_accuracy'].log(top5)
+    experiment['val/best_top1_accuracy'].log(max_val_metric)
+
+def save_checkpoint(save_file_path, model, optimizer):
+    if hasattr(model, 'module'):
+        model_state_dict = model.module.state_dict()
+    else:
+        model_state_dict = model.state_dict()
+    save_states = {
+        'model': model_state_dict,
+        'optimizer': optimizer.state_dict(),
+    }
+    torch.save(save_states, save_file_path)
 
 
 def format_time(time_as_seconds):

@@ -19,6 +19,10 @@ class MultiStreamDataset(torch.utils.data.Dataset):
         self.data_in_mem = cfg_data.data_in_mem
         self.preprocessed_data_on_disk = cfg_data.preprocessed_data_on_disk
         self.targets = pd.read_csv(os.path.abspath(target_file), sep=cfg_data.file_sep)
+        self.rwave_only = cfg_transforms.rwave_data_only
+        if self.rwave_only:
+            self.targets = self.targets[self.targets['rwaves'].notnull()]
+        self.targets = self.targets.replace({np.nan: None})
         if cfg_transforms.scale_output:
             self.targets['target'] = self.targets['target'].apply(lambda x: x / 100)
         self.unique_exams = self.targets.drop_duplicates('us_id')[['us_id', 'target']]
@@ -26,7 +30,8 @@ class MultiStreamDataset(torch.utils.data.Dataset):
         self.data_aug_flow = data_augmentations.DataAugmentations(cfg_transforms, cfg_augmentations.flow)
         self.base_folder_img = cfg_data.data_folder_img
         self.base_folder_flow = cfg_data.data_folder_flow
-        if cfg_data.only_use_complete_exams:
+        self.only_use_complete = cfg_data.only_use_complete_exams
+        if self.only_use_complete:
             self.filter_incomplete_exams()
         if self.is_eval_set:
             self.targets_combinations = self.generate_all_combinations()
@@ -91,7 +96,11 @@ class MultiStreamDataset(torch.utils.data.Dataset):
                         hr = df['hr_' + str(view)]
                         file_img = df['filename_img_' + str(view)]
                         file_flow = df['filename_flow_' + str(view)]
-                        img, flow, _, _, _, _ = self.read_image_data(tuple((exam, 0, 0, fps, hr, file_img, file_flow, target)))
+                        if self.rwave_only:
+                            rwaves = df['rwaves_' + str(view)]
+                        else:
+                            rwaves = None
+                        img, flow, _, _, _, _ = self.read_image_data(tuple((exam, 0, 0, fps, hr, file_img, file_flow, target, rwaves)))
                         img = self.data_aug_img.transform_values(img).transpose(3, 0, 1, 2)
                         data_list.append(img)
                         flow = self.data_aug_flow.transform_values(flow).transpose(3, 0, 1, 2)
@@ -131,6 +140,26 @@ class MultiStreamDataset(torch.utils.data.Dataset):
                         img, flow = self.generate_dummy_data()
                         data_list.append(img)
                         data_list.append(flow)
+        if not self.only_use_complete:
+            # Replace dummy views with real views.
+            dummy_indexes = []
+            real_indexes = []
+            for i in range(0, len(self.allowed_views)*2, 2):
+                if not data_list[i].all():
+                    dummy_indexes.append(i)
+                else:
+                    real_indexes.append(i)
+            if len(dummy_indexes):
+                # Sort real views by priority specified by Eva
+                real_indexes.sort(reverse=True)
+                if real_indexes[0] == 6:
+                    real_indexes.append(real_indexes.pop(0))
+                for i in dummy_indexes:
+                    # Replace dummy image data with top prio real image data
+                    data_list[i] = data_list[real_indexes[0]]
+                    # Replace dummy flow data with top prio real flow data
+                    data_list[i + 1] = data_list[real_indexes[0] + 1]
+
         return data_list, np.expand_dims(target, axis=0).astype(np.float32), index, exam
 
     def load_data_into_mem(self):
@@ -158,7 +187,10 @@ class MultiStreamDataset(torch.utils.data.Dataset):
         print('All data processed and loaded to disk')
 
     def write_data_to_disk(self, data):
-        uid, _, _, _, _, file_img, file_flow, target = data
+        uid, _, _, _, _, file_img, file_flow, target, rwaves = data
+        if self.rwave_only:
+            if isinstance(pd.eval(rwaves), float):
+                return 0
         folder_img = os.path.join(self.temp_folder_img, uid)
         fp_img = os.path.join(folder_img, file_img)
         if not os.path.exists(folder_img):
@@ -177,7 +209,7 @@ class MultiStreamDataset(torch.utils.data.Dataset):
         return 0
 
     def read_image_data(self, data):
-        uid, iid, view, fps, hr, file_img, file_flow, target = data
+        uid, iid, view, fps, hr, file_img, file_flow, target, rwaves = data
         fp_img = os.path.join(os.path.join(self.base_folder_img, uid), file_img)
         fp_flow = os.path.join(os.path.join(self.base_folder_flow, uid), file_flow)
         try:
@@ -192,8 +224,8 @@ class MultiStreamDataset(torch.utils.data.Dataset):
             if flow is None:
                 raise ValueError("Flow is None")
             if not self.preprocessed_data_on_disk:
-                img = self.data_aug_img.transform_size(img, fps, hr)
-                flow = self.data_aug_flow.transform_size(flow, fps, hr)
+                img = self.data_aug_img.transform_size(img, fps, hr, pd.eval(rwaves))
+                flow = self.data_aug_flow.transform_size(flow, fps, hr, pd.eval(rwaves))
             return img, flow, target, uid, iid, view
         except Exception as e:
             print("Failed to get item for img file: {} and flow file: {} with exception: {}".format(file_img, file_flow, e))
@@ -238,11 +270,11 @@ class MultiStreamDataset(torch.utils.data.Dataset):
             new_dict = {}
             t = self.targets[self.targets['us_id'] == ue.us_id]
             for view in self.allowed_views:
-                ue_data = t[t.view == view][['instance_id', 'fps', 'hr', 'filename_img', 'filename_flow']].values.tolist()
+                ue_data = t[t.view == view][['instance_id', 'fps', 'hr', 'filename_img', 'filename_flow', 'rwaves']].values.tolist()
                 if len(ue_data) > 0:
                     new_dict[view] = ue_data
                 else:
-                    new_dict[view] = [[None, None, None, None, None]]
+                    new_dict[view] = [[None, None, None, None, None, None]]
             ue_combs = self.combinate(new_dict, len(self.allowed_views))
 
             for uec in ue_combs:
@@ -253,6 +285,7 @@ class MultiStreamDataset(torch.utils.data.Dataset):
                     pd_dict['hr_' + str(view)] = data[2]
                     pd_dict['filename_img_' + str(view)] = data[3]
                     pd_dict['filename_flow_' + str(view)] = data[4]
+                    pd_dict['rwaves_' + str(view)] = data[5]
                 all_generated_combinations.append(pd_dict)
         return pd.DataFrame(all_generated_combinations)
 
@@ -264,3 +297,94 @@ class MultiStreamDataset(torch.utils.data.Dataset):
                          self.data_aug_flow.transforms.target_height,
                          self.data_aug_flow.transforms.target_width), dtype=np.float32)
         return img, flow
+
+
+class MultiStreamDatasetNoFlow(MultiStreamDataset):
+    def __init__(self, cfg_data, cfg_transforms, cfg_augmentations, target_file, is_eval_set):
+        super().__init__(cfg_data, cfg_transforms, cfg_augmentations, target_file, is_eval_set)
+
+    def __getitem__(self, index):
+        data_list = []
+        if self.is_eval_set:
+            if self.data_in_mem:
+                df = self.targets_combinations.iloc[index]
+                exam = df['us_id']
+                target = df['target']
+                for view in self.allowed_views:
+                    iid = df['instance_id_' + str(view)]
+                    if np.isnan(iid):
+                        img, _ = self.generate_dummy_data()
+                        data_list.append(img)
+                    else:
+                        row = self.data_frame[(self.data_frame['us_id'] == exam) & (self.data_frame['view'] == view) & (self.data_frame['iid'] == iid)]
+                        img = row['img']
+                        img = self.data_aug_img.transform_values(img).transpose(3, 0, 1, 2)
+                        data_list.append(img)
+            else:
+                df = self.targets_combinations.iloc[index]
+                exam = df['us_id']
+                target = df['target']
+                for view in self.allowed_views:
+                    iid = df['instance_id_' + str(view)]
+                    if np.isnan(iid):
+                        img, _ = self.generate_dummy_data()
+                        data_list.append(img)
+                    else:
+                        fps = df['fps_' + str(view)]
+                        hr = df['hr_' + str(view)]
+                        file_img = df['filename_img_' + str(view)]
+                        file_flow = df['filename_flow_' + str(view)]
+                        if self.rwave_only:
+                            rwaves = df['rwaves_' + str(view)]
+                        else:
+                            rwaves = None
+                        img, _, _, _, _, _ = self.read_image_data(tuple((exam, 0, 0, fps, hr, file_img, file_flow, target, rwaves)))
+                        img = self.data_aug_img.transform_values(img).transpose(3, 0, 1, 2)
+                        data_list.append(img)
+        else:
+            exam = self.unique_exams.iloc[index].us_id
+            target = self.unique_exams.iloc[index].target
+            if self.data_in_mem:
+                for view in self.allowed_views:
+                    df = self.data_frame[self.data_frame['us_id'] == exam].reset_index(drop=True)
+                    all_exam_indx = df[df['view'] == view].index
+                    if len(all_exam_indx) > 0:
+                        rndm_indx = random.choice(all_exam_indx)
+                        row = self.data_frame.iloc[rndm_indx]
+                        img = row['img']
+                        img = self.data_aug_img.transform_values(img).transpose(3, 0, 1, 2)
+                        data_list.append(img)
+                    else:
+                        img, _ = self.generate_dummy_data()
+                        data_list.append(img)
+            else:
+                for view in self.allowed_views:
+                    df = self.targets[self.targets['us_id'] == exam].reset_index(drop=True)
+                    all_exam_indx = df[df['view'] == view].index
+                    if len(all_exam_indx) > 0:
+                        rndm_indx = random.choice(all_exam_indx)
+                        img, _, _, _, _, _ = self.read_image_data(tuple(df.iloc[rndm_indx]))
+                        img = self.data_aug_img.transform_values(img).transpose(3, 0, 1, 2)
+                        data_list.append(img)
+                    else:
+                        img, _ = self.generate_dummy_data()
+                        data_list.append(img)
+        if not self.only_use_complete:
+            # Replace dummy views with real views.
+            dummy_indexes = []
+            real_indexes = []
+            for i in range(0, len(self.allowed_views)):
+                if not data_list[i].all():
+                    dummy_indexes.append(i)
+                else:
+                    real_indexes.append(i)
+            if len(dummy_indexes):
+                # Sort real views by priority specified by Eva
+                real_indexes.sort(reverse=True)
+                if real_indexes[0] == 3:
+                    real_indexes.append(real_indexes.pop(0))
+                for i in dummy_indexes:
+                    # Replace dummy image data with top prio real image data
+                    data_list[i] = data_list[real_indexes[0]]
+
+        return data_list, np.expand_dims(target, axis=0).astype(np.float32), index, exam

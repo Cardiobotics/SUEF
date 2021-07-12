@@ -724,3 +724,30 @@ def inception_model_flow(checkpoint, n_classes, n_channels, pre_n_classes, pre_n
     if not pre_n_classes == n_classes:
         model.replace_logits(n_classes)
     return model
+
+# MaxPool Variant of Inception3D
+class Inception3D_Maxpool(nn.Module):
+    def __init__(self, checkpoint, num_classes, num_channels, pre_n_classes, pre_n_channels):
+        super(Inception3D_Maxpool, self).__init__()
+        self.num_classes = num_classes
+
+        self.features = nn.Sequential(*list(inception_model(checkpoint, num_classes, num_channels, pre_n_classes, pre_n_channels).children())[3:])
+
+        for param in self.features.parameters():
+            param.requires_grad = True
+
+        self.maxpool = torch.nn.AdaptiveMaxPool3d(1)
+        self.logits = Unit3D(in_channels=384 + 384 + 128 + 128, output_channels=self.num_classes,
+                             kernel_shape=[1, 1, 1],
+                             padding=0,
+                             activation_fn=None,
+                             use_batch_norm=False,
+                             use_bias=True,
+                             name='logits')
+
+    @autocast(enabled=False)
+    def forward(self, x):
+        x = self.features(x)
+        x = self.maxpool(x)
+        x = self.logits(x)
+        return x
