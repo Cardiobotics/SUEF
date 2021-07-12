@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from utils.utils import AverageMeter
+from utils.utils import AverageMeter, log_train_metrics, log_train_classification, log_val_metrics, log_val_classification, save_checkpoint
 from sklearn.metrics import r2_score, accuracy_score, top_k_accuracy_score
 import time
 from torch.cuda.amp import GradScaler
@@ -385,42 +385,7 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
         print('Epoch {} completed. Time to complete: {}. Estimated remaining time: {}'.format(i+1, epoch_time, format_time(rem_time)))
 
 
-def log_train_metrics(experiment, t_loss, t_metric, lr):
-    experiment['train/loss'].log(t_loss)
-    experiment['train/r2'].log(t_metric)
-    experiment['train/lr'].log(lr)
 
-
-def log_train_classification(experiment, t_loss, t_metric, top3, top5):
-    experiment['train/loss'].log(t_loss)
-    experiment['train/top1_accuracy'].log(t_metric)
-    experiment['train/top3_accuracy'].log(top3)
-    experiment['train/top5_accuracy'].log(top5)
-
-
-def log_val_metrics(experiment, v_loss, v_metric, best_v_metric):
-    experiment['val/loss'].log(v_loss)
-    experiment['val/r2'].log(v_metric)
-    experiment['val/best_r2'].log(best_v_metric)
-
-
-def log_val_classification(experiment, loss, metric, max_val_metric, top3, top5):
-    experiment['val/loss'].log(loss)
-    experiment['val/top1_accuracy'].log(metric)
-    experiment['val/top3_accuracy'].log(top3)
-    experiment['val/top5_accuracy'].log(top5)
-    experiment['val/best_top1_accuracy'].log(max_val_metric)
-
-def save_checkpoint(save_file_path, model, optimizer):
-    if hasattr(model, 'module'):
-        model_state_dict = model.module.state_dict()
-    else:
-        model_state_dict = model.state_dict()
-    save_states = {
-        'model': model_state_dict,
-        'optimizer': optimizer.state_dict(),
-    }
-    torch.save(save_states, save_file_path)
 
 
 def format_time(time_as_seconds):

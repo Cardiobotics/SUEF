@@ -1,5 +1,5 @@
 from training import train_and_validate
-import neptune
+import neptune.new as neptune
 import hydra
 import torch
 import torch.multiprocessing as mp
@@ -63,15 +63,15 @@ def train_and_val(cfg, train_data_set, val_data_set):
     if is_master():
         experiment = None
         if cfg.logging.logging_enabled:
-            neptune.init(cfg.logging.project_name)
             experiment_params = {**dict(cfg.data_loader), **dict(cfg.transforms), **dict(cfg.augmentations),
                                  **dict(cfg.performance), **dict(cfg.training), **dict(cfg.optimizer),
                                  **dict(cfg.model),
-                                 **dict(cfg.evaluation), 'data_stream': cfg.data.type, 'view': cfg.data.name,
+                                 **dict(cfg.evaluation), 'target_file': cfg.data.train_targets,
+                                 'data_stream': cfg.data.type, 'view': cfg.data.name,
                                  'train_dataset_size': len(train_data_set),
                                  'val_dataset_size': len(val_data_set)}
-            experiment = neptune.create_experiment(name=cfg.logging.experiment_name, params=experiment_params,
-                                                   tags=tags)
+            experiment = neptune.init(project=cfg.logging.project_name, name=cfg.logging.experiment_name, tags=tags)
+            experiment['parameters'] = experiment_params
 
         if not os.path.exists(cfg.training.checkpoint_save_path):
             os.makedirs(cfg.training.checkpoint_save_path)
@@ -113,8 +113,9 @@ def train_and_val(cfg, train_data_set, val_data_set):
 
             # VAL LOGGING/CHECKPOINTING
             if cfg.logging.logging_enabled:
-                checkpoint_name = cfg.training.checkpoint_save_path + cfg.model.name + '_' + cfg.data.type + '_'\
-                                  + cfg.data.name + '_exp_' + experiment.id + '.pth'
+                experiment_id = experiment["sys/id"].fetch()
+                checkpoint_name = cfg.training.checkpoint_save_path + cfg.model.name + '_' + cfg.data.type + '_' \
+                                  + cfg.data.name + '_exp_' + experiment_id + '.pth'
                 log_val_metrics(experiment, val_loss_mean, val_r2, max_val_r2)
             else:
                 checkpoint_name = cfg.training.checkpoint_save_path + cfg.model.name + '_' + cfg.data.type + '_' \
