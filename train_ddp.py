@@ -1,12 +1,9 @@
-from training import train_and_validate
 import neptune.new as neptune
 import hydra
 import torch
 import torch.multiprocessing as mp
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.cuda.amp import GradScaler
-from torch.cuda.amp import autocast
 import logging
 from copy import copy
 from omegaconf import DictConfig
@@ -34,7 +31,7 @@ def main(cfg: DictConfig) -> None:
     for rank in range(cfg.world_size):
         process_config = copy(cfg)
         update_cfg(process_config, key='rank', val=rank)
-        p = mp.Process(target=train_and_val, args=(cfg, train_data_set, val_data_set))
+        p = mp.Process(target=train_and_val, args=(process_config, train_data_set, val_data_set))
         p.start()
         processes.append(p)
     for p in processes:
@@ -53,7 +50,7 @@ def train_and_val(cfg, train_data_set, val_data_set):
     model.to(device)
     model_no_ddp = model
     if cfg.performance.ddp:
-        model = DDP(model, device_ids=[cfg.performance.rank], find_unused_parameters=False)
+        model = DDP(model, device_ids=[cfg.rank], find_unused_parameters=False)
         model_no_ddp = model.module
 
     # CUDNN Auto-tuner. Use True when input size and model is static
@@ -105,11 +102,12 @@ def train_and_val(cfg, train_data_set, val_data_set):
         # TRAIN LOGGING
         if is_master():
             if cfg.logging.logging_enabled:
-                log_train_metrics(experiment, train_loss.avg, train_r2.avg)
+                log_train_metrics(experiment, train_loss.avg[0], train_r2.avg[0], optimizer.param_groups[0]['lr'])
 
         # RUN VALIDATION
         if is_master() and i % 10 == 0:
             val_loss_mean, val_r2 = validator.validate(model, val_data_loader, i)
+
 
             # VAL LOGGING/CHECKPOINTING
             if cfg.logging.logging_enabled:
@@ -130,7 +128,12 @@ def train_and_val(cfg, train_data_set, val_data_set):
         if is_dist_avail_and_initialized():
             dist.barrier()
         if cfg.optimizer.use_scheduler:
-            scheduler.step(val_loss_mean)
+            if is_master():
+                val_loss_tensor = torch.tensor(val_loss_mean, device=device)
+            else:
+                val_loss_tensor = torch.tensor(0, dtype=torch.float64, device=device)
+            dist.broadcast(val_loss_tensor, src=0)
+            scheduler.step(val_loss_tensor)
     cleanup()
 
 

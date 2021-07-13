@@ -1,14 +1,13 @@
 import csv
-from functools import partialmethod
 import os
 import torch
-from torch.utils.data import DataLoader, WeightedRandomSampler, RandomSampler, DistributedSampler, SequentialSampler
+from torch.utils.data import DataLoader, WeightedRandomSampler, RandomSampler, DistributedSampler
 from models import custom_cnn, resnext, i3d_bert, multi_stream
 from data.npy_dataset import NPYDataset
 from data.multi_stream_dataset import MultiStreamDataset
 from omegaconf import OmegaConf
 from omegaconf.omegaconf import open_dict
-
+import utils.ddp_utils
 
 
 class AverageMeter(object):
@@ -59,13 +58,6 @@ def load_value_file(file_path):
         value = float(input_file.read().rstrip('\n\r'))
 
     return value
-
-def partialclass(cls, *args, **kwargs):
-
-    class PartialClass(cls):
-        __init__ = partialmethod(cls.__init__, *args, **kwargs)
-
-    return PartialClass
 
 def load_filenames(path):
     files = []
@@ -183,7 +175,7 @@ def create_data_loaders(cfg, train_d_set, val_d_set):
 def create_train_loader(cfg, train_d_set):
     if cfg.performance.ddp:
         if cfg.data_loader.weighted_sampler:
-            t_sampler = DistributedWeightedSampler(train_d_set)
+            t_sampler = utils.ddp_utils.DistributedWeightedSampler(train_d_set)
         else:
             t_sampler = DistributedSampler(train_d_set)
     elif cfg.data_loader.weighted_sampler:
@@ -202,7 +194,6 @@ def create_val_loader(cfg, val_d_set):
     val_data_loader = DataLoader(val_d_set, batch_size=cfg.data_loader.batch_size_eval,
                                  num_workers=cfg.data_loader.n_workers, drop_last=cfg.data_loader.drop_last)
     return val_data_loader
-
 
 
 def create_data_sets(cfg):
@@ -228,36 +219,6 @@ def create_two_stream_models(cfg, checkpoint_img, checkpoint_flow):
                                                  cfg.model.n_classes, cfg.model.n_input_channels_flow,
                                                  cfg.model.pre_n_classes, cfg.model.pre_n_input_channels_flow)
     return model_img, model_flow
-
-
-class DistributedWeightedSampler(torch.utils.data.DistributedSampler):
-    def __init__(self, dataset, replacement=True):
-        super(DistributedWeightedSampler, self).__init__(dataset)
-
-        assert replacement
-
-        self.replacement = replacement
-        self.weights = torch.as_tensor(self.num_samples * [1.0], dtype=torch.double)
-
-    def __iter__(self):
-        iter_indices = super(DistributedWeightedSampler, self).__iter__()
-        indices = list(iter_indices)
-
-        weights = torch.tensor([self.weights[idx] for idx in indices])
-
-        g = torch.Generator()
-        g.manual_seed(self.epoch)
-
-        weight_indices = torch.multinomial(
-            weights, self.num_samples, self.replacement, generator=g)
-        indices = torch.tensor(indices)[weight_indices]
-
-        iter_indices = iter(indices.tolist())
-        return iter_indices
-
-    def __len__(self):
-        return self.num_samples
-
 
 def update_cfg(cfg, key, val):
     OmegaConf.set_struct(cfg, True)

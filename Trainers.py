@@ -36,7 +36,7 @@ class DDPTrainer:
         end_time_t = time.time()
         for j, (inputs, targets, indexes, _) in enumerate(train_data_loader):
             # Update timer for data retrieval
-            data_time_t.update(time.time() - end_time_t)
+            data_time_t.update([time.time() - end_time_t])
             # Move inputs and targets to correct device
             if len(inputs) > 1:
                 for p, inp in enumerate(inputs):
@@ -56,8 +56,8 @@ class DDPTrainer:
                 loss = self.criterion(outputs, targets)
                 loss_mean = loss.mean()
             if self.cfg.data_loader.weighted_sampler:
-                for index, loss in zip(indexes, loss.cpu().detach()):
-                    loss_ratio = loss / loss_mean.cpu().detach()
+                for index, l in zip(indexes, loss.cpu().detach()):
+                    loss_ratio = l / loss_mean.cpu().detach()
                     loss_ratio = torch.clamp(loss_ratio, min=0.1, max=3)
                     train_data_loader.sampler.weights[index] = loss_ratio
 
@@ -75,20 +75,20 @@ class DDPTrainer:
                 metric_targets = targets.cpu().detach().numpy()
                 metric_outputs = outputs.cpu().detach().numpy()
                 metric_r2 = r2_score(metric_targets, metric_outputs)
-                r2_values.update(metric_r2)
-                loss_values.update(loss_mean)
+                r2_values.update([metric_r2])
+                loss_values.update([loss_mean])
             except ValueError as ve:
                 print('Failed to calculate with error: {} and output: {}'.format(ve, outputs))
 
             # Update timer for batch
-            batch_time_t.update(time.time() - end_time_t)
+            batch_time_t.update([time.time() - end_time_t])
 
             if j % 100 == 0 and is_master():
                 print('Training Batch: [{}/{}] in epoch: {} \t '
-                      'Training Time: {batch_time.val:.3f} ({batch_time.avg:.3f}) \t '
-                      'Training Data Time: {data_time.val:.3f} ({data_time.avg:.3f}) \t '
-                      'Training Loss: {loss.val:.4f} ({loss.avg:.4f}) \t '
-                      'Training R2 Score: {metric.val:.3f} ({metric.avg:.3f}) \t'
+                      'Training Time: {batch_time.val[0]:.3f} ({batch_time.avg[0]:.3f}) \t '
+                      'Training Data Time: {data_time.val[0]:.3f} ({data_time.avg[0]:.3f}) \t '
+                      'Training Loss: {loss.val[0]:.4f} ({loss.avg[0]:.4f}) \t '
+                      'Training R2 Score: {metric.val[0]:.3f} ({metric.avg[0]:.3f}) \t'
                       .format(j + 1, len(train_data_loader), curr_epoch + 1, batch_time=batch_time_t, data_time=data_time_t,
                               loss=loss_values, metric=r2_values))
 
@@ -98,10 +98,10 @@ class DDPTrainer:
         if is_master():
             # End of training epoch prints and updates
             print('Finished Training Epoch: {} \t '
-                  'Training Time: {batch_time.avg:.3f} \t '
-                  'Training Data Time: {data_time.avg:.3f}) \t '
-                  'Training Loss: {loss.avg:.4f} \t '
-                  'Training R2 score: {metric.avg:.3f} \t'
+                  'Training Time: {batch_time.avg[0]:.3f} \t '
+                  'Training Data Time: {data_time.avg[0]:.3f}) \t '
+                  'Training Loss: {loss.avg[0]:.4f} \t '
+                  'Training R2 score: {metric.avg[0]:.3f} \t'
                   .format(curr_epoch + 1, batch_time=batch_time_t, data_time=data_time_t, loss=loss_values,
                           metric=r2_values))
 

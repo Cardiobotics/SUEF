@@ -20,7 +20,6 @@ class DDPValidator:
     def validate(self, model, val_data_loader, curr_epoch):
 
         model.eval()
-
         batch_time_v = AverageMeter()
         data_time_v = AverageMeter()
         losses_v = AverageMeter()
@@ -61,6 +60,12 @@ class DDPValidator:
                 all_target_v = np.concatenate((all_target_v, targets_v.squeeze(axis=1).cpu().detach().numpy()))
                 all_loss_v = np.concatenate((all_loss_v, loss_v.cpu().squeeze(axis=1).detach().numpy()))
                 all_uids_v = np.concatenate((all_uids_v, uids_v))
+
+                if k % 100 == 0 and is_master():
+                    print('Validation Batch: [{}/{}] in epoch: {} \t '
+                          'Validation Time: {batch_time.val:.3f} ({batch_time.avg:.3f}) \t '
+                          'Validation Data Time: {data_time.val:.3f} ({data_time.avg:.3f}) \t '
+                          .format(k + 1, len(val_data_loader), curr_epoch + 1, batch_time=batch_time_v, data_time=data_time_v))
 
             else:
                 metric_targets_v = targets_v.cpu().detach().numpy()

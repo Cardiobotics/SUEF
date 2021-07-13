@@ -1,7 +1,7 @@
 import torch.nn as nn
 
 from models.resnet import conv1x1x1, Bottleneck, ResNet
-from utils.utils import partialclass
+from functools import partialmethod
 
 
 def get_inplanes():
@@ -67,3 +67,11 @@ def generate_model(model_depth, **kwargs):
                         **kwargs)
 
     return model
+
+
+def partialclass(cls, *args, **kwargs):
+
+    class PartialClass(cls):
+        __init__ = partialmethod(cls.__init__, *args, **kwargs)
+
+    return PartialClass
