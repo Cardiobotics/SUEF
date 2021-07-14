@@ -34,7 +34,7 @@ class DDPTrainer:
             train_data_loader.sampler.set_epoch(curr_epoch)
 
         end_time_t = time.time()
-        for j, (inputs, targets, indexes, _) in enumerate(train_data_loader):
+        for j, (inputs, targets, indexes, _, _) in enumerate(train_data_loader):
             # Update timer for data retrieval
             data_time_t.update([time.time() - end_time_t])
             # Move inputs and targets to correct device

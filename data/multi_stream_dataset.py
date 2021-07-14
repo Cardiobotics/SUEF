@@ -53,7 +53,6 @@ class MultiStreamDataset(torch.utils.data.Dataset):
                 null_df = self.targets_combinations[self.targets_combinations['target'].isnull()]
                 raise ValueError('Null values in targets: {}'.format(null_df))
 
-
     def __len__(self):
         if self.is_eval_set:
             return len(self.targets_combinations)
@@ -62,6 +61,7 @@ class MultiStreamDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         data_list = []
+        iid_list = []
         if self.is_eval_set:
             if self.data_in_mem:
                 df = self.targets_combinations.iloc[index]
@@ -73,6 +73,7 @@ class MultiStreamDataset(torch.utils.data.Dataset):
                         img, flow = self.generate_dummy_data()
                         data_list.append(img)
                         data_list.append(flow)
+                        iid_list.append(-1)
                     else:
                         row = self.data_frame[(self.data_frame['us_id'] == exam) & (self.data_frame['view'] == view) & (self.data_frame['iid'] == iid)]
                         img = row['img']
@@ -81,6 +82,7 @@ class MultiStreamDataset(torch.utils.data.Dataset):
                         flow = row['flow']
                         flow = self.data_aug_flow.transform_values(flow).transpose(3, 0, 1, 2)
                         data_list.append(flow)
+                        iid_list.append(iid)
             else:
                 df = self.targets_combinations.iloc[index]
                 exam = df['us_id']
@@ -91,6 +93,7 @@ class MultiStreamDataset(torch.utils.data.Dataset):
                         img, flow = self.generate_dummy_data()
                         data_list.append(img)
                         data_list.append(flow)
+                        iid_list.append(-1)
                     else:
                         fps = df['fps_' + str(view)]
                         hr = df['hr_' + str(view)]
@@ -105,6 +108,7 @@ class MultiStreamDataset(torch.utils.data.Dataset):
                         data_list.append(img)
                         flow = self.data_aug_flow.transform_values(flow).transpose(3, 0, 1, 2)
                         data_list.append(flow)
+                        iid_list.append(iid)
         else:
             exam = self.unique_exams.iloc[index].us_id
             target = self.unique_exams.iloc[index].target
@@ -160,7 +164,7 @@ class MultiStreamDataset(torch.utils.data.Dataset):
                     # Replace dummy flow data with top prio real flow data
                     data_list[i + 1] = data_list[real_indexes[0] + 1]
 
-        return data_list, np.expand_dims(target, axis=0).astype(np.float32), index, exam
+        return data_list, np.expand_dims(target, axis=0).astype(np.float32), index, exam, iid_list
 
     def load_data_into_mem(self):
         nprocs = mp.cpu_count()

@@ -32,7 +32,7 @@ class DDPValidator:
 
         end_time_v = time.time()
         
-        for k, (inputs_v, targets_v, _, uids_v) in enumerate(val_data_loader):
+        for k, (inputs_v, targets_v, _, uids_v, _) in enumerate(val_data_loader):
             # Update timer for data retrieval
             data_time_v.update(time.time() - end_time_v)
 

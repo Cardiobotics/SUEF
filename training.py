@@ -141,7 +141,7 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
         # Training
 
         model.train()
-        for j, (inputs_t, targets_t, indexes_t, _) in enumerate(train_data_loader):
+        for j, (inputs_t, targets_t, indexes_t, _, _) in enumerate(train_data_loader):
             # Update timer for data retrieval
             data_time_t.update(time.time() - end_time_t)
             
@@ -249,7 +249,7 @@ def train_and_validate(model, train_data_loader, val_data_loader, cfg, experimen
             all_target_v = np.zeros((0))
             all_uids_v = np.zeros((0))
             all_loss_v = np.zeros((0))
-            for k, (inputs_v, targets_v, _, uids_v) in enumerate(val_data_loader):
+            for k, (inputs_v, targets_v, _, uids_v, _) in enumerate(val_data_loader):
                 # Update timer for data retrieval
                 data_time_v.update(time.time() - end_time_v)
 
