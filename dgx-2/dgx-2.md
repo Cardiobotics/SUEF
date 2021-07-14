@@ -30,7 +30,7 @@ Once the script has finished, reboot the VM with ``sudo reboot`` and connect aga
 This installs and configures privoxy which is used to setup an HTTP proxy that routes HTTP traffic through the SSH tunnel.
 As the VM's cannot access internet on their own except for a few whitelisted addresses, we need this to be able to install pip packages and use git.
 Once the script has finished, ``exit`` and connect again with ``ssh -R 3128 username@123.456.789.012`` where 3128 is the port number privoxy was configured to use.
-3. Run the script ``/proj/startup/startup3_suef.sh``.
+3. Run the script ``/proj/startup/startup3.sh``.
 This installs system dependencies such as cuda-toolkit, cudnn and libraries required for pyenv. It then configures your bashrc for pyenv and installs the correct python version. 
 4. Create a new virtual python enviroment with ``python -m venv dgx2`` and activate it with ``source ~/dgx2/bin/activate``
 5. Clone the git repo with ``git clone https://github.com/Cardiobotics/SUEF.git``
