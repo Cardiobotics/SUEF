@@ -40,9 +40,8 @@ This installs system dependencies such as cuda-toolkit, cudnn and libraries requ
 
 ## Troubleshooting
 
-One issue I have encountered two times is that I was unable to access the GPU's even though nvidia-smi listed them correctly. 
-An easy test after your finished the setup is running torch.cuda.is_available() in an interactive python terminal and it then gives you an error message that states the device is unavailable.
-This means something has gone wrong when the VM was created and you have to ask Joel to recreate the entire VM have have not found a simple fix for it yet.
-In general, this can be a good idea if your VM is in a bad state. Instead of spending hours trying to troubleshooting it back to functional, just ask admins to delete and start from scratch.
+One issue I have encountered two times is that I was unable to access the GPU's with torch.cuda.is_available() in an interactive python terminal even though nvidia-smi listed them correctly. 
+This means something has gone wrong when the VM was created and you have to ask Joel to recreate the entire VM as they have not found a simple fix for it yet.
+In general, recreating the VM can be a good idea if your VM is in a bad state. Instead of spending hours trying to troubleshooting it back to functional, just ask admins to delete and start from scratch.
 
 Admins and help from other users can be found in this [slack channel](nbiisweden.slack.com)
