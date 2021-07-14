@@ -16,7 +16,7 @@ The VM will automatically have access to a fileshare at ``/proj``. This is the s
 Files and folders in ``/proj`` will only be available to users in our project with one exception: ``/proj/datahub``.  
 This folder is for datasets shared among all AIDA users and files and folders there can therefore be accessed by others.  
 Other important folders are:  
-``/proj/startup`` - folder containing startup scripts. The scripts can also be found in this git repo.
+``/proj/startup`` - folder containing startup scripts. The scripts can also be found in this git repo.  
 ``/proj/suef_data`` - folder containing data for this project.  
 ``/proj/deepcoronary`` - folder containing data for the deepcoronary project.  
 
@@ -27,7 +27,7 @@ Other important folders are:
 This first excludes several packages that should not be installed (as they would interfere with the DGX-2 software and drivers). Then it updates and upgrades the VM.
 Once the script has finished, reboot the VM with ``sudo reboot`` and connect again when its up.
 2. Run the script ``/proj/startup/startup2.sh``.
-This installs and configures privoxy which is used to setup an HTTP proxy that tunnels HTTP traffic through the SSH tunnel.
+This installs and configures privoxy which is used to setup an HTTP proxy that routes HTTP traffic through the SSH tunnel.
 As the VM's cannot access internet on their own except for a few whitelisted addresses, we need this to be able to install pip packages and use git.
 Once the script has finished, ``exit`` and connect again with ``ssh -R 3128 username@123.456.789.012`` where 3128 is the port number privoxy was configured to use.
 3. Run the script ``/proj/startup/startup3_suef.sh``.
