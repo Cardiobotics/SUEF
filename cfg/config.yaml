@@ -1,5 +1,5 @@
 defaults:
-  - data_type: no-flow
+  - data_type: multistream
   - model: i3d_bert
   - model_type: ${defaults.1.model}_${defaults.0.data_type}
   - transforms: ${defaults.0.data_type}
@@ -21,10 +21,12 @@ data:
 
 logging:
   logging_enabled: True
-  project_name: 'eiphodos/SUEF'
+  project_name: 'jenniferalven/lvef'
   experiment_name: ${model.name}
 
 performance:
+  device: cuda
+  ddp: True
   cuddn_auto_tuner: True
   parallel_mode: True
   half_precision: True

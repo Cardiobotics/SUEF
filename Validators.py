@@ -3,35 +3,40 @@ from torch.cuda.amp import autocast
 import numpy as np
 import pandas as pd
 import time
-from sklearn.metrics import r2_score
+from sklearn.metrics import r2_score, accuracy_score, top_k_accuracy_score, mean_absolute_error, median_absolute_error
 from utils.utils import AverageMeter
 from utils.ddp_utils import is_master
+from loss_functions.hinge_loss import HingeLossRegression
+from loss_functions.ordinal_regression import OrdinalRegressionAT, get_ORAT_labels
 
 
 class DDPValidator:
-    def __init__(self, criterion, device, config):
+    def __init__(self, criterion, device, config, goal_type):
         self.device = device
         self.criterion = criterion
         self.cfg = config
+        self.goal_type = goal_type
 
         self.use_half_prec = config.performance.half_precision
 
     @torch.no_grad()
     def validate(self, model, val_data_loader, curr_epoch):
 
-        model.eval()
         batch_time_v = AverageMeter()
         data_time_v = AverageMeter()
         losses_v = AverageMeter()
         metric_values_v = AverageMeter()
-
-        all_result_v = np.zeros((0))
+        if self.goal_type == 'classification':
+            all_result_v = np.zeros((0, self.cfg.model.n_classes))
+        elif self.goal_type == 'regression':
+            all_result_v = np.zeros((0))
         all_target_v = np.zeros((0))
         all_uids_v = np.zeros((0))
         all_loss_v = np.zeros((0))
+        all_integer_outputs = np.zeros((0))
 
         end_time_v = time.time()
-        
+        model.eval()
         for k, (inputs_v, targets_v, _, uids_v, _) in enumerate(val_data_loader):
             # Update timer for data retrieval
             data_time_v.update(time.time() - end_time_v)
@@ -42,13 +47,18 @@ class DDPValidator:
                     inputs_v[p] = inp.to(self.device, non_blocking=True)
             else:
                 inputs_v = inputs_v.to(self.device, non_blocking=True)
+            if self.goal_type == 'classification':
+                targets_v = targets_v.long().squeeze()
             targets_v = targets_v.to(self.device, non_blocking=True)
 
             with torch.no_grad():
                 # Get model validation output and validation loss
                 with autocast(enabled=self.use_half_prec):
                     outputs_v = model(inputs_v)
-                    loss_v = self.criterion(outputs_v, targets_v)
+                    if self.goal_type == 'ordinal_regression':
+                        loss_v = self.criterion(outputs_v, targets_v, model.module.thresholds)
+                    else:
+                        loss_v = self.criterion(outputs_v, targets_v)
                     loss_mean_v = loss_v.mean()
 
             # Update timer for batch
@@ -56,9 +66,19 @@ class DDPValidator:
 
             # Update metrics
             if self.cfg.evaluation.use_best_sample:
-                all_result_v = np.concatenate((all_result_v, outputs_v.squeeze(axis=1).cpu().detach().numpy()))
-                all_target_v = np.concatenate((all_target_v, targets_v.squeeze(axis=1).cpu().detach().numpy()))
-                all_loss_v = np.concatenate((all_loss_v, loss_v.cpu().squeeze(axis=1).detach().numpy()))
+                if self.goal_type == ' classification':
+                    all_result_v = np.concatenate((all_result_v, outputs_v.cpu().detach().numpy()))
+                    all_target_v = np.concatenate((all_target_v, targets_v.cpu().detach().numpy()))
+                    all_loss_v = np.concatenate((all_loss_v, loss_v.cpu().detach().numpy()))
+                elif self.goal_type == 'regression':
+                    all_result_v = np.concatenate((all_result_v, outputs_v.squeeze(axis=1).cpu().detach().numpy()))
+                    all_target_v = np.concatenate((all_target_v, targets_v.squeeze(axis=1).cpu().detach().numpy()))
+                    all_loss_v = np.concatenate((all_loss_v, loss_v.cpu().squeeze(axis=1).detach().numpy()))
+                    # Convert model output to integers of % 5 == 0
+                    out_v = (np.around(outputs_v.squeeze(axis=1).cpu().detach().numpy()/5, decimals=0)*5).astype(np.int)
+                    out_v[out_v < 20] = 20
+                    out_v[out_v > 70] = 70
+                    all_integer_outputs = np.concatenate((all_integer_outputs, out_v))
                 all_uids_v = np.concatenate((all_uids_v, uids_v))
 
                 if k % 100 == 0 and is_master():
@@ -70,7 +90,14 @@ class DDPValidator:
             else:
                 metric_targets_v = targets_v.cpu().detach().numpy()
                 metric_outputs_v = outputs_v.cpu().detach().numpy()
-                metric_v = r2_score(metric_targets_v, metric_outputs_v)
+                if self.goal_type == 'regression':
+                    metric_v = r2_score(metric_targets_v, metric_outputs_v)
+                elif self.goal_type == 'classification':
+                    predictions_v = np.argmax(metric_outputs_v, 1)
+                    metric_v = accuracy_score(metric_targets_v, predictions_v)
+                elif self.goal_type == 'ordinal-regression':
+                    labels_v = get_ORAT_labels(metric_outputs_v, model.module.thresholds)
+                    metric_v = accuracy_score(metric_targets_v, labels_v)
                 metric_values_v.update(metric_v)
                 losses_v.update(loss_mean_v)
 
@@ -84,7 +111,7 @@ class DDPValidator:
                                   loss=losses_v, metric=metric_values_v))
 
             end_time_v = time.time()
-
+        res = {}
         if self.cfg.evaluation.use_best_sample:
             # As results are over all possible combinations of views in each examination
             # each different combination needs to have a weight equal to its ratio.
@@ -107,11 +134,31 @@ class DDPValidator:
             targets = pd_val_data['target'].to_numpy()
             results = pd_val_data['result'].to_numpy()
             weights = pd_val_data['metric_weight'].to_numpy()
-            metric_v = r2_score(targets, results, sample_weight=weights)
+            if self.goal_type == 'regression':
+                metric_v = r2_score(targets, results, sample_weight=weights)
+                metric_v_integer = r2_score(targets, all_integer_outputs, sample_weight=weights)
+                metric_v_mean_ae = mean_absolute_error(targets, all_integer_outputs, sample_weight=weights) 
+                metric_v_median_ae = median_absolute_error(targets, all_integer_outputs, sample_weight=weights)
+                res['val/r2'] = metric_v
+                res['val/r2_integer'] = metric_v_integer
+                res['val/mean_ae'] = metric_v_mean_ae
+                res['val/median_ae'] = metric_v_median_ae
+            elif self.goal_type == 'classification':
+                top3_v = top_k_accuracy_score(all_target_v.astype(np.int), results, k=3, sample_weight=weights)
+                top5_v = top_k_accuracy_score(all_target_v.astype(np.int), results, k=5, sample_weight=weights)
+                predictions_v = np.argmax(results, 1)
+                metric_v = accuracy_score(targets.astype(np.int), predictions_v, sample_weight=weights)
+                res['val/top3_accuracy'] = top3_v
+                res['val/top5_accuracy'] = top5_v
+                res['val/accuracy'] = metric_v
+            elif self.goal_type == 'ordinal-regression':
+                labels_v = get_ORAT_labels(metric_outputs_v, model.module.thresholds)
+                metric_v = accuracy_score(metric_targets_v, labels_v)            
         else:
             loss_mean_v = losses_v.avg
             metric_v = metric_values_v.avg
-
+        
+        res['val/loss'] = loss_mean_v
         # End of validation epoch prints and updates
         if is_master():
             print('Finished Validation Epoch: {} \t '
@@ -122,4 +169,4 @@ class DDPValidator:
                   .format(curr_epoch + 1, batch_time=batch_time_v, data_time=data_time_v, loss=loss_mean_v, metric=metric_v))
             print('Example targets: {} \n Example outputs: {}'.format(torch.squeeze(targets_v), torch.squeeze(outputs_v)))
 
-        return loss_mean_v, metric_v
+        return res

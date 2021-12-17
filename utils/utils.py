@@ -8,6 +8,8 @@ from data.multi_stream_dataset import MultiStreamDataset
 from omegaconf import OmegaConf
 from omegaconf.omegaconf import open_dict
 import utils.ddp_utils
+import torch.nn as nn
+import numpy as np
 
 
 class AverageMeter(object):
@@ -68,6 +70,8 @@ def load_filenames(path):
 
 def create_and_load_model(cfg):
     tags = []
+    if cfg.performance.ddp:
+        map_location = {'cuda:%d' % 0: 'cuda:%d' % cfg.rank}
     if cfg.model.name == 'ccnn':
         tags.append('CNN')
         model = custom_cnn.CNN()
@@ -99,8 +103,9 @@ def create_and_load_model(cfg):
     elif cfg.model.name == 'i3d_bert':
         tags.append('I3D')
         tags.append('BERT')
+
         if cfg.training.continue_training:
-            state_dict = torch.load(cfg.model.best_model)['model']
+            state_dict = torch.load(cfg.model.best_model, map_location=map_location)['model']
             if cfg.data.type == 'img':
                 tags.append('spatial')
                 model = i3d_bert.rgb_I3D64f_bert2_FRMB('', cfg.model.length, cfg.model.n_classes,
@@ -116,13 +121,15 @@ def create_and_load_model(cfg):
                 tags.append('multi-stream')
                 tags.append('TVL1')
                 if cfg.model.shared_weights:
+
                     tags.append('shared-weights')
                     model_img, model_flow = create_two_stream_models(cfg, '', '')
-                    model = multi_stream.MultiStreamShared(model_img, model_flow, len(state_dict['Linear_layer.weight'][0]))
+                    model = multi_stream.MultiStreamShared(model_img, model_flow, len(state_dict['Linear_layer.weight'][0]), cfg.model.n_classes)
                     model.load_state_dict(state_dict)
                     if not len(state_dict['Linear_layer.weight'][0]) == len(cfg.data.allowed_views) * 2:
                         model.replace_fc(len(cfg.data.allowed_views) * 2)
                 else:
+
                     model_dict = {}
                     for view in cfg.data.allowed_views:
                         m_img_name = 'model_img_' + str(view)
@@ -131,6 +138,7 @@ def create_and_load_model(cfg):
                         model_dict[m_img_name] = model_img
                         model_dict[m_flow_name] = model_flow
                     model = multi_stream.MultiStream(model_dict)
+
         else:
             if cfg.data.type == 'img':
                 tags.append('spatial')
@@ -162,8 +170,63 @@ def create_and_load_model(cfg):
                         model_dict[m_img_name] = model_img
                         model_dict[m_flow_name] = model_flow
                     model = multi_stream.MultiStream(model_dict, cfg.model.n_classes)
+                    
     return model, tags
 
+def create_criterion_and_optimizer(cfg, model, train_data_loader):
+    # Create Criterion and Optimizer
+    if cfg.optimizer.loss_function == 'hinge':
+        metric_name = 'R2'
+        goal_type = 'regression'
+        # Set loss criterion
+        criterion = HingeLossRegression(cfg.optimizer.loss_epsilon, reduction=None)
+        # Hinge loss is dependent on L2 regularization so we cannot use AdamW
+        optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()),
+                                     lr=cfg.optimizer.learning_rate, weight_decay=cfg.optimizer.weight_decay)
+    elif cfg.optimizer.loss_function == 'mse':
+        metric_name = 'R2'
+        goal_type = 'regression'
+        # Set loss criterion
+        criterion = nn.MSELoss(reduction='none')
+        # Set optimizer
+        optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()),
+                                      lr=cfg.optimizer.learning_rate, weight_decay=cfg.optimizer.weight_decay)
+    elif cfg.optimizer.loss_function == 'cross-entropy':
+        metric_name = 'Accuracy'
+        goal_type = 'classification'
+        # Get counts for each class
+        # Instantiate class counts to 1 instead of 0 to prevent division by zero in case data is missing
+        class_counts = np.array(cfg.model.n_classes*[1])
+        print(class_counts, cfg.model.n_classes, train_data_loader.dataset.unique_exams['target'].value_counts().index)
+        for i in train_data_loader.dataset.unique_exams['target'].value_counts().index:
+            class_counts[i] = train_data_loader.dataset.unique_exams['target'].value_counts().loc[i]
+        # Calculate the inverse normalized ratio for each class
+        weights = class_counts / class_counts.sum()
+        weights = 1 / weights
+        weights = weights / weights.sum()
+        weights = torch.FloatTensor(weights).cuda()
+        criterion = nn.CrossEntropyLoss(weight=weights, reduction='none')
+        optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()),
+                                      lr=cfg.optimizer.learning_rate, weight_decay=cfg.optimizer.weight_decay)
+
+    elif cfg.optimizer.loss_function == 'all-threshold':
+        metric_name = 'Accuracy'
+        goal_type = 'ordinal-regression'
+        # Get counts for each class
+        # Instantiate class counts to 1 instead of 0 to prevent division by zero in case data is missing
+        class_counts = np.array(len(train_data_loader.dataset.unique_exams['target'].unique())*[1])
+        for i in train_data_loader.dataset.unique_exams['target'].value_counts().index:
+            class_counts[i] = train_data_loader.dataset.unique_exams['target'].value_counts().loc[i]
+        # Calculate the inverse normalized ratio for each class
+        weights = class_counts / class_counts.sum()
+        weights = 1 / weights
+        weights = weights / weights.sum()
+        weights = torch.FloatTensor(weights).cuda()
+        criterion = OrdinalRegressionAT(sample_weights=weights, reduction=None)
+        optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()),
+                                      lr=cfg.optimizer.learning_rate, weight_decay=cfg.optimizer.weight_decay)
+
+    return criterion, optimizer, goal_type
 
 def create_data_loaders(cfg, train_d_set, val_d_set):
     train_data_loader = create_train_loader(cfg, train_d_set)
@@ -238,11 +301,14 @@ def log_train_classification(experiment, t_loss, t_metric, top3, top5):
     experiment['train/top5_accuracy'].log(top5)
 
 
-def log_val_metrics(experiment, v_loss, v_metric, best_v_metric):
+def log_val_metrics_old(experiment, v_loss, v_metric, best_v_metric):
     experiment['val/loss'].log(v_loss)
     experiment['val/r2'].log(v_metric)
     experiment['val/best_r2'].log(best_v_metric)
 
+def log_val_metrics(experiment, res):
+    for k, v in res.items():
+        experiment[k].log(v)
 
 def log_val_classification(experiment, loss, metric, max_val_metric, top3, top5):
     experiment['val/loss'].log(loss)
@@ -251,6 +317,10 @@ def log_val_classification(experiment, loss, metric, max_val_metric, top3, top5)
     experiment['val/top5_accuracy'].log(top5)
     experiment['val/best_top1_accuracy'].log(max_val_metric)
 
+def update_val_results(results, **kwargs):
+    for k, v in kwargs.items():
+        results[k] = v
+    
 def save_checkpoint(save_file_path, model, optimizer):
     if hasattr(model, 'module'):
         model_state_dict = model.module.state_dict()
