@@ -249,7 +249,8 @@ def create_train_loader(cfg, train_d_set):
         t_sampler = RandomSampler(train_d_set)
     train_data_loader = DataLoader(train_d_set, batch_size=cfg.data_loader.batch_size_train,
                                    num_workers=cfg.data_loader.n_workers, drop_last=cfg.data_loader.drop_last,
-                                   sampler=t_sampler)
+                                   sampler=t_sampler,
+                                   pin_memory=True)
     return train_data_loader
 
 

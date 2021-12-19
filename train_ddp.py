@@ -15,7 +15,7 @@ from Validators import DDPValidator
 
 logging.basicConfig(level=logging.INFO)
 logging.getLogger('numexpr').setLevel(logging.WARNING)
-
+VAL_N = 10
 
 @hydra.main(config_path="cfg", config_name="config")
 def main(cfg: DictConfig) -> None:
@@ -118,7 +118,7 @@ def train_and_val(cfg, train_data_set, val_data_set):
                 log_train_metrics(experiment, train_loss.avg[0], train_r2.avg[0], optimizer.param_groups[0]['lr'])
 
         # RUN VALIDATION
-        if is_master() and i % 10 == 0:
+        if is_master() and i % VAL_N == 0:
             res = validator.validate(model_no_ddp, val_data_loader, i)
             if goal_type == 'regression':
                 val_metric = res['val/r2']
@@ -172,14 +172,15 @@ def train_and_val(cfg, train_data_set, val_data_set):
         # END OF EPOCH
         if is_dist_avail_and_initialized():
             dist.barrier()
-        
-        if cfg.optimizer.use_scheduler:
-            if is_master():
-                val_loss_tensor = torch.tensor(val_loss_mean, device=device)
-            else:
-                val_loss_tensor = torch.tensor(0, dtype=torch.float64, device=device)
-            dist.broadcast(val_loss_tensor, src=0)
-            scheduler.step(val_loss_tensor)
+
+        if i % VAL_N == 0:
+            if cfg.optimizer.use_scheduler:
+                if is_master():
+                    val_loss_tensor = torch.tensor(val_loss_mean, device=device)
+                else:
+                    val_loss_tensor = torch.tensor(0, dtype=torch.float64, device=device)
+                dist.broadcast(val_loss_tensor, src=0)
+                scheduler.step(val_loss_tensor)
        
     cleanup()
 
