@@ -12,7 +12,8 @@ from utils.utils import create_and_load_model, create_data_sets, create_data_loa
 from utils.ddp_utils import prepare_ddp, init_distributed_mode, is_master, cleanup, is_dist_avail_and_initialized
 from Trainers import DDPTrainer
 from Validators import DDPValidator
-
+os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"   
+os.environ["CUDA_VISIBLE_DEVICES"]= "0, 1, 2, 3" 
 logging.basicConfig(level=logging.INFO)
 logging.getLogger('numexpr').setLevel(logging.WARNING)
 VAL_N = 10
@@ -20,7 +21,7 @@ VAL_N = 10
 @hydra.main(config_path="cfg", config_name="config")
 def main(cfg: DictConfig) -> None:
     assert cfg.model.name in ['ccnn', 'resnext', 'i3d', 'i3d_bert', 'i3d_bert_2stream']
-    assert cfg.data.type in ['img', 'flow', 'multi-stream']
+    assert cfg.data.type in ['img', 'flow', 'multi-stream', 'no-flow']
     
     
     train_data_set, val_data_set = create_data_sets(cfg)

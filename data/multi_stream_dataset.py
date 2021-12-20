@@ -309,6 +309,7 @@ class MultiStreamDatasetNoFlow(MultiStreamDataset):
 
     def __getitem__(self, index):
         data_list = []
+        iid_list = [] 
         if self.is_eval_set:
             if self.data_in_mem:
                 df = self.targets_combinations.iloc[index]
@@ -391,4 +392,4 @@ class MultiStreamDatasetNoFlow(MultiStreamDataset):
                     # Replace dummy image data with top prio real image data
                     data_list[i] = data_list[real_indexes[0]]
 
-        return data_list, np.expand_dims(target, axis=0).astype(np.float32), index, exam
+        return data_list, np.expand_dims(target, axis=0).astype(np.float32), index, exam, iid_list
