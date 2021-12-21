@@ -3,12 +3,13 @@ import hydra
 import torch
 import torch.multiprocessing as mp
 import torch.distributed as dist
+import torch.nn as nn
 from torch.nn.parallel import DistributedDataParallel as DDP
 import logging
 from copy import copy
 from omegaconf import DictConfig
 import os
-from utils.utils import create_and_load_model, create_data_sets, create_data_loaders, update_cfg, create_train_loader, log_train_metrics, log_val_metrics, save_checkpoint, create_criterion_and_optimizer, update_val_results
+from utils.utils import create_and_load_model, create_data_sets, create_data_loaders, update_cfg, create_train_loader, log_train_metrics, log_val_metrics, save_checkpoint, create_criterion_and_optimizer, update_val_results, log_metrics
 from utils.ddp_utils import prepare_ddp, init_distributed_mode, is_master, cleanup, is_dist_avail_and_initialized
 from Trainers import DDPTrainer
 from Validators import DDPValidator
@@ -49,6 +50,9 @@ def train_and_val(cfg, train_data_set, val_data_set):
     # If distributed, the specific cuda device is configured in init_distributed_mode
     device = torch.device(cfg.performance.device)
     model, tags = create_and_load_model(cfg)
+    ### Quick fix for using weights of a pretrained model using mse on classification ###
+    #model.replace_fc(len(cfg.data.allowed_views)*2, cfg.model.n_classes)
+    #model.replace_fc_submodels(cfg.model.n_classes)
     model.to(device)
     model_no_ddp = model
     if cfg.performance.ddp:
@@ -83,16 +87,15 @@ def train_and_val(cfg, train_data_set, val_data_set):
 
 
     ### SETUP CRITERION AND OPTIMIZER
-    criterion, optimizer, goal_type = create_criterion_and_optimizer(cfg, model_no_ddp, train_data_loader)
+    criterion, optimizer, goal_type, metric_name = create_criterion_and_optimizer(cfg, model_no_ddp, train_data_loader)
         
-    
     if cfg.optimizer.use_scheduler:
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=cfg.optimizer.s_patience, factor=cfg.optimizer.s_factor)
     
 
     ### SETUP TRAINER AND VALIDATOR ###
-    validator = DDPValidator(criterion, device, cfg, goal_type)
-    trainer = DDPTrainer(criterion, device, cfg)
+    validator = DDPValidator(criterion, device, cfg, metric_name, goal_type)
+    trainer = DDPTrainer(criterion, device, cfg, metric_name, goal_type)
     
     ### INIT VALIDATION METRICS ### 
     if goal_type ==  'regression':
@@ -111,12 +114,15 @@ def train_and_val(cfg, train_data_set, val_data_set):
     ### TRAINING START ###
     for i in range(cfg.training.epochs):
         # TRAIN EPOCH
-        train_loss, train_r2 = trainer.train_epoch(model, train_data_loader, optimizer, i)
-
+        #train_loss, train_metric = trainer.train_epoch(model, train_data_loader, optimizer, i)
+        res_t = trainer.train_epoch(model, train_data_loader, optimizer, i)
         # TRAIN LOGGING
         if is_master():
             if cfg.logging.logging_enabled:
-                log_train_metrics(experiment, train_loss.avg[0], train_r2.avg[0], optimizer.param_groups[0]['lr'])
+                kwargs = {'train/lr': optimizer.param_groups[0]['lr']}
+                update_val_results(res_t, **kwargs)
+                log_metrics(experiment, res_t)
+                #log_train_metrics(experiment, train_loss.avg[0], train_metric.avg[0], optimizer.param_groups[0]['lr'])
 
         # RUN VALIDATION
         if is_master() and i % VAL_N == 0:
@@ -124,15 +130,8 @@ def train_and_val(cfg, train_data_set, val_data_set):
             if goal_type == 'regression':
                 val_metric = res['val/r2']
                 val_r2_integer = res['val/r2_integer']
-                val_loss_mean = res['val/loss']
                 val_median_ae = res['val/median_ae'] 
                 val_mean_ae = res['val/mean_ae']
-            elif goal_type == 'classification':
-                val_metric = res['val/accuracy']
-                val_top3_acc = res['val/top3_accuracy']
-                val_top5_acc = res['val/top5_accuracy']
-
-            if goal_type == 'regression':
                 if max_val_r2_integer is None or val_r2_integer > max_val_r2_integer:
                     max_val_r2_integer = val_r2_integer
                 if max_val_mean_ae is None or val_mean_ae < max_val_mean_ae:
@@ -140,11 +139,15 @@ def train_and_val(cfg, train_data_set, val_data_set):
                 if max_val_median_ae is None or val_median_ae < max_val_median_ae:
                     max_val_median_ae = val_median_ae
             elif goal_type == 'classification':
+                val_metric = res['val/accuracy']
+                val_top3_acc = res['val/top3_accuracy']
+                val_top5_acc = res['val/top5_accuracy']
                 if max_val_top3_acc is None or val_top3_acc > max_val_top3_acc:
                     max_val_top3_acc = val_top3_acc
                 if max_val_top5_acc is None or val_top5_acc > max_val_top5_acc:
                     max_val_top5_acc = val_top5_acc
-
+            val_loss_mean = res['val/loss']
+            
             # VAL LOGGING/CHECKPOINTING
             if cfg.logging.logging_enabled and cfg.training.checkpointing_enabled:
                 experiment_id = experiment["sys/id"].fetch()
@@ -165,10 +168,11 @@ def train_and_val(cfg, train_data_set, val_data_set):
                     kwargs = {"val/best_r2": max_val_metric, "val/best_r2_integer": max_val_r2_integer,
                              "val/best_median_ae": max_val_median_ae, "val/best_mean_ae": max_val_mean_ae}
                 elif goal_type == 'classification':
-                    kwargs = {"val/top1_accuracy": max_val_metric, "val/top3_accuracy": max_val_top3_acc,
-                             "val/top5_accuracy": max_val_top5_acc}
+                    kwargs = {"val/best_top1_accuracy": max_val_metric, "val/_best_top3_accuracy": max_val_top3_acc,
+                             "val/best_top5_accuracy": max_val_top5_acc}
+                    print(kwargs)
                 update_val_results(res, **kwargs)
-                log_val_metrics(experiment, res)
+                log_metrics(experiment, res)
             
         # END OF EPOCH
         if is_dist_avail_and_initialized():

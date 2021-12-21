@@ -83,6 +83,16 @@ class MultiStreamShared(nn.Module):
         self.fc_name = 'Linear_layer'
         fc_linear = nn.Linear(self.fc_input_size, self.n_classes)
         self.add_module(self.fc_name, fc_linear)
+    
+    def replace_fc_submodels(self, n_classes):
+        # Replace submodels fc layer
+        self._modules[self.model_img_name].fc_action = nn.Linear(512, n_classes)
+        torch.nn.init.xavier_uniform_(self._modules[self.model_img_name].fc_action.weight)
+        self._modules[self.model_img_name].fc_action.bias.data.zero_()
+        
+        self._modules[self.model_flow_name].fc_action = nn.Linear(512, n_classes)
+        torch.nn.init.xavier_uniform_(self._modules[self.model_flow_name].fc_action.weight)
+        self._modules[self.model_flow_name].fc_action.bias.data.zero_()
 
 
 class MSNoFlowShared(nn.Module):

@@ -1,4 +1,6 @@
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 from torch.cuda.amp import autocast
 import numpy as np
 import pandas as pd
@@ -11,10 +13,11 @@ from loss_functions.ordinal_regression import OrdinalRegressionAT, get_ORAT_labe
 
 
 class DDPValidator:
-    def __init__(self, criterion, device, config, goal_type):
+    def __init__(self, criterion, device, config, metric_name, goal_type):
         self.device = device
         self.criterion = criterion
         self.cfg = config
+        self.metric_name = metric_name
         self.goal_type = goal_type
 
         self.use_half_prec = config.performance.half_precision
@@ -30,10 +33,10 @@ class DDPValidator:
             all_result_v = np.zeros((0, self.cfg.model.n_classes))
         elif self.goal_type == 'regression':
             all_result_v = np.zeros((0))
+            all_integer_outputs = np.zeros((0))
         all_target_v = np.zeros((0))
         all_uids_v = np.zeros((0))
         all_loss_v = np.zeros((0))
-        all_integer_outputs = np.zeros((0))
 
         end_time_v = time.time()
         model.eval()
@@ -66,8 +69,8 @@ class DDPValidator:
 
             # Update metrics
             if self.cfg.evaluation.use_best_sample:
-                if self.goal_type == ' classification':
-                    all_result_v = np.concatenate((all_result_v, outputs_v.cpu().detach().numpy()))
+                if self.goal_type == 'classification':
+                    all_result_v = np.concatenate((all_result_v, F.softmax(outputs_v, dim=1).cpu().detach().numpy()))
                     all_target_v = np.concatenate((all_target_v, targets_v.cpu().detach().numpy()))
                     all_loss_v = np.concatenate((all_loss_v, loss_v.cpu().detach().numpy()))
                 elif self.goal_type == 'regression':
@@ -102,12 +105,12 @@ class DDPValidator:
                 losses_v.update(loss_mean_v)
 
                 if k % 100 == 0 and is_master():
-                    print('Validation Batch: [{}/{}] in epoch: {} \t '
+                    print(('Validation Batch: [{}/{}] in epoch: {} \t '
                           'Validation Time: {batch_time.val:.3f} ({batch_time.avg:.3f}) \t '
                           'Validation Data Time: {data_time.val:.3f} ({data_time.avg:.3f}) \t '
                           'Validation Loss: {loss.val:.4f} ({loss.avg:.4f}) \t '
-                          'Validation R2 Score: {metric.val:.3f} ({metric.avg:.3f}) \t'
-                          .format(k + 1, len(val_data_loader), curr_epoch + 1, batch_time=batch_time_v, data_time=data_time_v,
+                          'Validation' + self.metric_name +  ': {metric.val:.3f} ({metric.avg:.3f}) \t'
+                          ).format(k + 1, len(val_data_loader), curr_epoch + 1, batch_time=batch_time_v, data_time=data_time_v,
                                   loss=losses_v, metric=metric_values_v))
 
             end_time_v = time.time()
@@ -115,10 +118,10 @@ class DDPValidator:
         if self.cfg.evaluation.use_best_sample:
             # As results are over all possible combinations of views in each examination
             # each different combination needs to have a weight equal to its ratio.
-            val_data = np.array((all_uids_v, all_result_v, all_target_v, all_loss_v))
+            val_data = np.array((all_uids_v, all_target_v, all_loss_v))
             val_data = val_data.transpose(1, 0)
-            pd_val_data = pd.DataFrame(val_data, columns=['us_id', 'result', 'target', 'loss'])
-            pd_val_data[['result', 'target', 'loss']] = pd_val_data[['result', 'target', 'loss']].astype(np.float32)
+            pd_val_data = pd.DataFrame(val_data, columns=['us_id', 'target', 'loss'])
+            pd_val_data[['target', 'loss']] = pd_val_data[['target', 'loss']].astype(np.float32)
             val_ue = pd_val_data.drop_duplicates(subset='us_id')[['us_id', 'target']]
             all_mean_loss = []
             for ue in val_ue.itertuples():
@@ -132,7 +135,7 @@ class DDPValidator:
             np_loss = np.array(all_mean_loss, dtype=np.float32)
             loss_mean_v = np_loss.mean()
             targets = pd_val_data['target'].to_numpy()
-            results = pd_val_data['result'].to_numpy()
+            results = all_result_v
             weights = pd_val_data['metric_weight'].to_numpy()
             if self.goal_type == 'regression':
                 metric_v = r2_score(targets, results, sample_weight=weights)
@@ -161,12 +164,16 @@ class DDPValidator:
         res['val/loss'] = loss_mean_v
         # End of validation epoch prints and updates
         if is_master():
-            print('Finished Validation Epoch: {} \t '
+            print(('Finished Validation Epoch: {} \t '
                   'Validation Time: {batch_time.avg:.3f} \t '
                   'Validation Data Time: {data_time.avg:.3f} \t '
                   'Validation Loss: {loss:.4f} \t '
-                  'Validation R2 score: {metric:.3f} \t'
-                  .format(curr_epoch + 1, batch_time=batch_time_v, data_time=data_time_v, loss=loss_mean_v, metric=metric_v))
-            print('Example targets: {} \n Example outputs: {}'.format(torch.squeeze(targets_v), torch.squeeze(outputs_v)))
+                  'Validation' +  self.metric_name + ': {metric:.3f} \t'
+                  ).format(curr_epoch + 1, batch_time=batch_time_v, data_time=data_time_v, loss=loss_mean_v, metric=metric_v))
+            if self.goal_type == 'classification':
+                outputs_v = torch.tensor(predictions_v)
+            else:
+                outputs_v = torch.squeeze(outputs_v)
+            print('Example targets: {} \n Example outputs: {}'.format(torch.squeeze(targets_v), outputs_v))
 
         return res

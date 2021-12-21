@@ -291,6 +291,63 @@ def create_and_load_model(cfg):
                         model_dict[m_img_name] = model_img
                     model = multi_stream.MultiStream(model_dict)
                     model.load_state_dict(state_dict)
+        
+        else:
+            if cfg.data.type == 'img':
+                tags.append('spatial')
+                model = i3d_bert.rgb_I3D64f_bert2_FRMB(cfg.model.pre_trained_checkpoint, cfg.model.length,
+                                                       cfg.model.n_classes, cfg.model.n_input_channels,
+                                                       cfg.model.pre_n_classes, cfg.model.pre_n_input_channels)
+            if cfg.data.type == 'flow':
+                tags.append('temporal')
+                tags.append('TVL1')
+                model = i3d_bert.flow_I3D64f_bert2_FRMB(cfg.model.pre_trained_checkpoint, cfg.model.length,
+                                                        cfg.model.n_classes, cfg.model.n_input_channels,
+                                                        cfg.model.pre_n_classes, cfg.model.pre_n_input_channels)
+            if cfg.data.type == 'multi-stream':
+                tags.append('multi-stream')
+                tags.append('TVL1')
+                if cfg.model.shared_weights:
+                    tags.append('shared-weights')
+                    model_img, model_flow = create_two_stream_models(cfg, cfg.model.pre_trained_checkpoint_img,
+                                                                     cfg.model.pre_trained_checkpoint_flow)
+                    model = multi_stream.MultiStreamShared(model_img, model_flow, len(cfg.data.allowed_views) * 2,
+                                                           cfg.model.n_classes)
+                    if cfg.optimizer.loss_function == 'all-threshold':
+                        model.thresholds = torch.nn.Parameter(torch.tensor(range(10)).float(), requires_grad=True)
+                else:
+                    model_dict = {}
+                    for view in cfg.data.allowed_views:
+                        m_img_name = 'model_img_' + str(view)
+                        m_flow_name = 'model_flow_' + str(view)
+                        model_img, model_flow = create_two_stream_models(cfg, cfg.model.pre_trained_checkpoint_img,
+                                                                         cfg.model.pre_trained_checkpoint_flow)
+                        model_dict[m_img_name] = model_img
+                        model_dict[m_flow_name] = model_flow
+                    model = multi_stream.MultiStream(model_dict, cfg.model.n_classes)
+            if cfg.data.type == 'no-flow':
+                tags.append('no-flow')
+                tags.append('multi-stream')
+                if cfg.model.shared_weights:
+                    tags.append('shared-weights')
+                    model_img = i3d_bert.rgb_I3D64f_bert2_FRMB(cfg.model.pre_trained_checkpoint_img, cfg.model.length,
+                                                               cfg.model.n_classes, cfg.model.n_input_channels_img,
+                                                               cfg.model.pre_n_classes,
+                                                               cfg.model.pre_n_input_channels_img)
+                    model = multi_stream.MSNoFlowShared(model_img, len(cfg.data.allowed_views), cfg.model.n_classes)
+                    if cfg.optimizer.loss_function == 'all-threshold':
+                        model.thresholds = torch.nn.Parameter(torch.tensor(range(10)).float(), requires_grad=True)
+                else:
+                    model_dict = {}
+                    for view in cfg.data.allowed_views:
+                        m_img_name = 'model_img_' + str(view)
+                        model_img = i3d_bert.rgb_I3D64f_bert2_FRMB(cfg.model.pre_trained_checkpoint_img,
+                                                                   cfg.model.length,
+                                                                   cfg.model.n_classes, cfg.model.n_input_channels_img,
+                                                                   cfg.model.pre_n_classes,
+                                                                   cfg.model.pre_n_input_channels_img)
+                        model_dict[m_img_name] = model_img
+                    model = multi_stream.MultiStream(model_dict, cfg.model.n_classes)
             
     return model, tags
 
@@ -347,7 +404,7 @@ def create_criterion_and_optimizer(cfg, model, train_data_loader):
         optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()),
                                       lr=cfg.optimizer.learning_rate, weight_decay=cfg.optimizer.weight_decay)
 
-    return criterion, optimizer, goal_type
+    return criterion, optimizer, goal_type, metric_name
 
 def create_data_loaders(cfg, train_d_set, val_d_set):
     train_data_loader = create_train_loader(cfg, train_d_set)
@@ -413,10 +470,10 @@ def create_data_sets_old(cfg):
 
 def create_two_stream_models(cfg, checkpoint_img, checkpoint_flow):
     model_img = i3d_bert.rgb_I3D64f_bert2_FRMB(checkpoint_img, cfg.model.length,
-                                               cfg.model.n_classes, cfg.model.n_input_channels_img,
+                                               cfg.model.pre_n_classes, cfg.model.n_input_channels_img,
                                                cfg.model.pre_n_classes, cfg.model.pre_n_input_channels_img)
     model_flow = i3d_bert.flow_I3D64f_bert2_FRMB(checkpoint_flow, cfg.model.length,
-                                                 cfg.model.n_classes, cfg.model.n_input_channels_flow,
+                                                 cfg.model.pre_n_classes, cfg.model.n_input_channels_flow,
                                                  cfg.model.pre_n_classes, cfg.model.pre_n_input_channels_flow)
     return model_img, model_flow
 
@@ -429,7 +486,7 @@ def log_train_metrics(experiment, t_loss, t_metric, lr):
     experiment['train/loss'].log(t_loss)
     experiment['train/r2'].log(t_metric)
     experiment['train/lr'].log(lr)
-
+    
 
 def log_train_classification(experiment, t_loss, t_metric, top3, top5):
     experiment['train/loss'].log(t_loss)
@@ -438,12 +495,12 @@ def log_train_classification(experiment, t_loss, t_metric, top3, top5):
     experiment['train/top5_accuracy'].log(top5)
 
 
-def log_val_metrics_old(experiment, v_loss, v_metric, best_v_metric):
+def log_val_metrics(experiment, v_loss, v_metric, best_v_metric):
     experiment['val/loss'].log(v_loss)
     experiment['val/r2'].log(v_metric)
     experiment['val/best_r2'].log(best_v_metric)
 
-def log_val_metrics(experiment, res):
+def log_metrics(experiment, res):
     for k, v in res.items():
         experiment[k].log(v)
 
