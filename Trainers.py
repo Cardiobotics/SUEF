@@ -2,6 +2,7 @@ import torch
 from torch.cuda.amp import GradScaler
 from torch.cuda.amp import autocast
 from sklearn.metrics import r2_score, accuracy_score, top_k_accuracy_score
+from loss_functions.ordinal_regression import get_ORAT_labels
 import time
 import numpy as np
 from utils.utils import AverageMeter
@@ -23,6 +24,8 @@ class DDPTrainer:
         self.use_half_prec = config.performance.half_precision
         self.scaler = GradScaler(enabled=self.use_half_prec)
         self.loss = config.optimizer.loss_function
+        self.gradient_clipping = config.performance.gradient_clipping
+        self.max_norm = config.performance.gradient_clipping_max_norm
 
     def train_epoch(self, model, train_data_loader, optimizer, curr_epoch):
 
@@ -58,7 +61,10 @@ class DDPTrainer:
             # Get model train output and train loss
             with autocast(enabled=self.use_half_prec):
                 outputs = model(inputs)
-                loss = self.criterion(outputs, targets)
+                if self.goal_type == 'ordinal-regression':
+                    loss = self.criterion(outputs, targets, model.thresholds)
+                else:
+                    loss = self.criterion(outputs, targets)
                 loss_mean = loss.mean()
             if self.cfg.data_loader.weighted_sampler:
                 for index, l in zip(indexes, loss.cpu().detach()):
@@ -70,6 +76,13 @@ class DDPTrainer:
 
             # Backwards pass
             self.scaler.scale(loss_mean).backward()
+
+            # Gradient Clipping
+            if self.gradient_clipping:
+                self.scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_value_(model.parameters(), self.max_norm)
+
+            # Step and update
             self.scaler.step(optimizer)
             self.scaler.update()
             # Calculate and update metrics
@@ -84,8 +97,8 @@ class DDPTrainer:
                     predictions = np.argmax(metric_outputs, 1)
                     metric = accuracy_score(metric_targets, predictions)
                 elif self.goal_type == 'ordinal-regression':
-                    predictions = np.argmax(metric_outputs, 1)
-                    metric = accuracy_score(metric_targets, predictions)
+                    labels = get_ORAT_labels(metric_outputs, model.module.threshold)
+                    metric = accuracy_score(metric_targets, labels)
                 metric_values.update([metric])
                 loss_values.update([loss_mean])
             except ValueError as ve:
