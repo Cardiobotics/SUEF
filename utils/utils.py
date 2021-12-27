@@ -5,6 +5,7 @@ from torch.utils.data import DataLoader, WeightedRandomSampler, RandomSampler, D
 from models import custom_cnn, resnext, i3d_bert, multi_stream
 from data.npy_dataset import NPYDataset
 from data.multi_stream_dataset import MultiStreamDataset, MultiStreamDatasetNoFlow
+from loss_functions.ordinal_regression import OrdinalRegressionAT, get_ORAT_labels
 from omegaconf import OmegaConf
 from omegaconf.omegaconf import open_dict
 from collections import OrderedDict
@@ -514,7 +515,82 @@ def log_val_classification(experiment, loss, metric, max_val_metric, top3, top5)
 def update_val_results(results, **kwargs):
     for k, v in kwargs.items():
         results[k] = v
-    
+
+def convert_classes_to_EF(classes):
+    assert classes >= 0 and classes <= 10
+    if classes == 0:
+        return 20
+    elif classes == 1:
+        return 25
+    elif classes == 2:
+        return 30
+    elif classes == 3:
+        return 35
+    elif classes == 4:
+        return 40
+    elif classes == 5:
+        return 45
+    elif classes == 6:
+        return 50
+    elif classes == 7:
+        return 55
+    elif classes == 8:
+        return 60
+    elif classes == 9:
+        return 65
+    elif classes == 10:
+        return 70
+
+def convert_EF_to_classes(ef):
+    assert ef >= 0 and ef <= 100
+    if ef <= 20:
+        return 0
+    elif ef > 20 and ef <= 25:
+        return 1
+    elif ef > 25 and ef <= 30:
+        return 2
+    elif ef > 30 and ef <= 35:
+        return 3
+    elif ef > 35 and ef <= 40:
+        return 4
+    elif ef > 40 and ef <= 45:
+        return 5
+    elif ef > 45 and ef <= 50:
+        return 6
+    elif ef > 50 and ef <= 55:
+        return 7
+    elif ef > 55 and ef <= 60:
+        return 8
+    elif ef > 60 and ef <= 65:
+        return 9
+    elif ef > 65:
+        return 10
+
+def convert_EF_to_integer(ef):
+    assert ef >= 0 and ef <= 100
+    if ef <= 20:
+        return 20
+    elif ef > 20 and ef <= 25:
+        return 25
+    elif ef > 25 and ef <= 30:
+        return 30
+    elif ef > 30 and ef <= 35:
+        return 35
+    elif ef > 35 and ef <= 40:
+        return 40
+    elif ef > 40 and ef <= 45:
+        return 45
+    elif ef > 45 and ef <= 50:
+        return 50
+    elif ef > 50 and ef <= 55:
+        return 55
+    elif ef > 55 and ef <= 60:
+        return 60
+    elif ef > 60 and ef <= 65:
+        return 65
+    elif ef > 65:
+        return 70
+
 def save_checkpoint(save_file_path, model, optimizer):
     if hasattr(model, 'module'):
         model_state_dict = model.module.state_dict()
@@ -526,14 +602,3 @@ def save_checkpoint(save_file_path, model, optimizer):
     }
     torch.save(save_states, save_file_path)
 
-
-def save_checkpoint(save_file_path, model, optimizer):
-    if hasattr(model, 'module'):
-        model_state_dict = model.module.state_dict()
-    else:
-        model_state_dict = model.state_dict()
-    save_states = {
-        'model': model_state_dict,
-        'optimizer': optimizer.state_dict(),
-    }
-    torch.save(save_states, save_file_path)

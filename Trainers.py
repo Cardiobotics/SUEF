@@ -39,6 +39,8 @@ class DDPTrainer:
         if is_dist_avail_and_initialized():
             train_data_loader.sampler.set_epoch(curr_epoch)
 
+        
+
         end_time_t = time.time()
         for j, (inputs, targets, indexes, _, _) in enumerate(train_data_loader):
             # Update timer for data retrieval
@@ -62,13 +64,13 @@ class DDPTrainer:
             with autocast(enabled=self.use_half_prec):
                 outputs = model(inputs)
                 if self.goal_type == 'ordinal-regression':
-                    loss = self.criterion(outputs, targets, model.thresholds)
+                    loss = self.criterion(outputs, targets, model.module.thresholds)
                 else:
                     loss = self.criterion(outputs, targets)
                 loss_mean = loss.mean()
             if self.cfg.data_loader.weighted_sampler:
                 for index, l in zip(indexes, loss.cpu().detach()):
-                    loss_ratio = l / loss_mean.cpu().detach()
+                    loss_ratio = l / (loss_mean.cpu().detach() + 1e-05)
                     loss_ratio = torch.clamp(loss_ratio, min=0.1, max=3)
                     train_data_loader.sampler.weights[index] = loss_ratio
 
@@ -97,7 +99,7 @@ class DDPTrainer:
                     predictions = np.argmax(metric_outputs, 1)
                     metric = accuracy_score(metric_targets, predictions)
                 elif self.goal_type == 'ordinal-regression':
-                    labels = get_ORAT_labels(metric_outputs, model.module.threshold)
+                    labels = get_ORAT_labels(metric_outputs, model.module.thresholds)
                     metric = accuracy_score(metric_targets, labels)
                 metric_values.update([metric])
                 loss_values.update([loss_mean])

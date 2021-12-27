@@ -58,7 +58,7 @@ def train_and_val(cfg, train_data_set, val_data_set):
     if cfg.performance.ddp:
         model = DDP(model, device_ids=[cfg.rank], find_unused_parameters=False)
         model_no_ddp = model.module
-
+    
     # CUDNN Auto-tuner. Use True when input size and model is static
     torch.backends.cudnn.benchmark = cfg.performance.cuddn_auto_tuner
     ### SETUP LOGGING AND CHECKPOINTING ###
@@ -97,18 +97,14 @@ def train_and_val(cfg, train_data_set, val_data_set):
     validator = DDPValidator(criterion, device, cfg, metric_name, goal_type)
     trainer = DDPTrainer(criterion, device, cfg, metric_name, goal_type)
     
+    # Set anomaly detection
+    torch.autograd.set_detect_anomaly(cfg.performance.anomaly_detection)
+    
     ### INIT VALIDATION METRICS ### 
-    if goal_type ==  'regression':
-        max_val_r2_integer = None
-        max_val_mean_ae = None
-        max_val_median_ae = None
-    elif goal_type == 'classification':
-        max_val_top3_acc = None
-        max_val_top5_acc = None
-    elif goal_type == 'ordinal-regression':
-        # TODO
-        pass
-
+    max_val_r2_integer = None
+    max_val_mean_ae = None
+    max_val_median_ae = None
+    max_val_acc = None
     max_val_metric = None
     
     ### TRAINING START ###
@@ -129,24 +125,24 @@ def train_and_val(cfg, train_data_set, val_data_set):
             res = validator.validate(model_no_ddp, val_data_loader, i)
             if goal_type == 'regression':
                 val_metric = res['val/r2']
-                val_r2_integer = res['val/r2_integer']
-                val_median_ae = res['val/median_ae'] 
-                val_mean_ae = res['val/mean_ae']
-                if max_val_r2_integer is None or val_r2_integer > max_val_r2_integer:
-                    max_val_r2_integer = val_r2_integer
-                if max_val_mean_ae is None or val_mean_ae < max_val_mean_ae:
-                    max_val_mean_ae = val_mean_ae
-                if max_val_median_ae is None or val_median_ae < max_val_median_ae:
-                    max_val_median_ae = val_median_ae
             elif goal_type == 'classification':
                 val_metric = res['val/accuracy']
-                val_top3_acc = res['val/top3_accuracy']
-                val_top5_acc = res['val/top5_accuracy']
-                if max_val_top3_acc is None or val_top3_acc > max_val_top3_acc:
-                    max_val_top3_acc = val_top3_acc
-                if max_val_top5_acc is None or val_top5_acc > max_val_top5_acc:
-                    max_val_top5_acc = val_top5_acc
+            elif goal_type == 'ordinal-regression':
+                val_metric = res['val/accuracy']
             val_loss_mean = res['val/loss']
+            val_r2_integer = res['val/r2_integer']
+            val_mse_integer = res['val/mse_integer']
+            val_median_ae = res['val/median_ae'] 
+            val_mean_ae = res['val/mean_ae']
+            val_acc = res['val/accuracy']
+            if max_val_acc is None or val_acc > max_val_acc:
+                max_val_acc = val_acc
+            if max_val_r2_integer is None or val_r2_integer > max_val_r2_integer:
+                max_val_r2_integer = val_r2_integer
+            if max_val_mean_ae is None or val_mean_ae < max_val_mean_ae:
+                max_val_mean_ae = val_mean_ae
+            if max_val_median_ae is None or val_median_ae < max_val_median_ae:
+                max_val_median_ae = val_median_ae
             
             # VAL LOGGING/CHECKPOINTING
             if cfg.logging.logging_enabled and cfg.training.checkpointing_enabled:
@@ -166,11 +162,11 @@ def train_and_val(cfg, train_data_set, val_data_set):
             if cfg.logging.logging_enabled: 
                 if goal_type == 'regression':
                     kwargs = {"val/best_r2": max_val_metric, "val/best_r2_integer": max_val_r2_integer,
-                             "val/best_median_ae": max_val_median_ae, "val/best_mean_ae": max_val_mean_ae}
-                elif goal_type == 'classification':
-                    kwargs = {"val/best_top1_accuracy": max_val_metric, "val/_best_top3_accuracy": max_val_top3_acc,
-                             "val/best_top5_accuracy": max_val_top5_acc}
-                    print(kwargs)
+                             "val/best_median_ae": max_val_median_ae, "val/best_mean_ae": max_val_mean_ae,
+                             "val/best_top1_accuracy": max_val_acc}
+                elif goal_type == 'classification' or goal_type == 'ordinal-regression':
+                    kwargs = { "val/best_r2_integer": max_val_r2_integer, "val/best_median_ae": max_val_median_ae, 
+                            "val/best_mean_ae": max_val_mean_ae, "val/best_top1_accuracy": max_val_acc}
                 update_val_results(res, **kwargs)
                 log_metrics(experiment, res)
             
