@@ -178,6 +178,43 @@ class flow_I3D64f_bert2(nn.Module):
         x = self.fc_action(output)
         return x, input_vectors, sequenceOut, maskSample
 
+    
+# rgb_I3D64f_bert2S
+class rgb_I3D64f_FRMB(nn.Module):
+    def __init__(self, checkpoint, length, num_classes, num_channels, pre_n_classes, pre_n_channels):
+        super(rgb_I3D64f_FRMB, self).__init__()
+        self.hidden_size = 512
+        self.n_layers = 1
+        self.attn_heads = 8
+        self.num_classes = num_classes
+        self.length = length
+        self.dp = nn.Dropout(p=0.8)
+
+        self.features = nn.Sequential(*list(inception_model(checkpoint, num_classes, num_channels, pre_n_classes, pre_n_channels).children())[3:])
+
+        for param in self.features.parameters():
+            param.requires_grad = True
+
+        end_point = 'Mixed_5c'
+        self.features[-1] = InceptionModule(256 + 320 + 128 + 128, [192, 96, 192, 24, 64, 64], end_point)
+
+        self.fc_action = nn.Linear(self.hidden_size, num_classes)
+        self.avgpool = nn.AdaptiveAvgPool3d(output_size=(8, 1, 1))
+
+        torch.nn.init.xavier_uniform_(self.fc_action.weight)
+        self.fc_action.bias.data.zero_()
+        
+    @autocast(enabled=False)
+    def forward(self, x):
+        x = self.features(x)
+        x = self.avgpool(x)
+        x = x.view(x.size(0), -1)
+        x = self.dp(x)
+        
+        x = self.fc_action(x)
+
+        return x
+    
 
 # rgb_I3D64f_bert2S
 class rgb_I3D64f_bert2_FRMB(nn.Module):
@@ -223,6 +260,42 @@ class rgb_I3D64f_bert2_FRMB(nn.Module):
             output = self.dp(classificationOut)
         x = self.fc_action(output)
         #return x, input_vectors, sequenceOut, maskSample
+        return x
+
+    
+# flow_I3D64f_bert2S
+class flow_I3D64f_FRMB(nn.Module):
+    def __init__(self, checkpoint, length, num_classes, num_channels, pre_n_classes, pre_n_channels):
+        super(flow_I3D64f_FRMB, self).__init__()
+        self.hidden_size = 512
+        self.n_layers = 1
+        self.attn_heads = 8
+        self.num_classes = num_classes
+        self.length = length
+        self.dp = nn.Dropout(p=0.8)
+
+        self.features = nn.Sequential(*list(inception_model_flow(checkpoint, num_classes, num_channels, pre_n_classes, pre_n_channels).children())[3:])
+
+        for param in self.features.parameters():
+            param.requires_grad = True
+
+        end_point = 'Mixed_5c'
+        self.features[-1] = InceptionModule(256 + 320 + 128 + 128, [192, 96, 192, 24, 64, 64], end_point)
+
+        self.fc_action = nn.Linear(self.hidden_size, num_classes)
+        self.avgpool = nn.AdaptiveAvgPool3d(output_size=(8, 1, 1))
+
+        torch.nn.init.xavier_uniform_(self.fc_action.weight)
+        self.fc_action.bias.data.zero_()
+
+    @autocast(enabled=False)
+    def forward(self, x):
+        x = self.features(x)
+        x = self.avgpool(x)
+        x = x.view(x.size(0), -1)
+        x = self.dp(x)
+        x = self.fc_action(x)
+
         return x
 
 

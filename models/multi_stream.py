@@ -3,6 +3,7 @@ from typing import Any
 import torch.nn as nn
 import torch
 import torch.nn.functional as F
+from models import i3d_bert
 
 
 class MultiStream(nn.Module):
@@ -84,16 +85,23 @@ class MultiStreamShared(nn.Module):
         fc_linear = nn.Linear(self.fc_input_size, self.n_classes)
         self.add_module(self.fc_name, fc_linear)
     
-    def replace_fc_submodels(self, n_classes):
+    def replace_fc_submodels(self, n_classes, inp_dim=512):
         # Replace submodels fc layer
-        self._modules[self.model_img_name].fc_action = nn.Linear(512, n_classes)
+        inp_dim = self.num_models * inp_dim
+        self._modules[self.model_img_name].fc_action = nn.Linear(inp_dim, n_classes)
         torch.nn.init.xavier_uniform_(self._modules[self.model_img_name].fc_action.weight)
         self._modules[self.model_img_name].fc_action.bias.data.zero_()
         
-        self._modules[self.model_flow_name].fc_action = nn.Linear(512, n_classes)
+        self._modules[self.model_flow_name].fc_action = nn.Linear(inp_dim, n_classes)
         torch.nn.init.xavier_uniform_(self._modules[self.model_flow_name].fc_action.weight)
         self._modules[self.model_flow_name].fc_action.bias.data.zero_()
-
+        
+    def replace_mixed_5c(self):
+        end_point = 'Mixed_5c'
+        self._modules[self.model_img_name].features[-1] = i3d_bert.InceptionModule(256 + 320 + 128 + 128, [384, 192, 384, 48, 128, 128], end_point)
+        
+        self._modules[self.model_flow_name].features[-1] = i3d_bert.InceptionModule(256 + 320 + 128 + 128, [384, 192, 384, 48, 128, 128], end_point)
+                                                                                   
 
 class MSNoFlowShared(nn.Module):
     '''
