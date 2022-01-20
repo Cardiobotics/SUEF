@@ -10,10 +10,11 @@ import time
 
 
 class MultiStreamDataset(torch.utils.data.Dataset):
-    def __init__(self, cfg_data, cfg_transforms, cfg_augmentations, target_file, is_eval_set):
+    def __init__(self, cfg_data, cfg_transforms, cfg_augmentations, target_file, is_eval_set, minimum_validation):
         super(MultiStreamDataset).__init__()
         assert not (cfg_data.data_in_mem and cfg_data.preprocessed_data_on_disk)
 
+        self.minimum_validation = minimum_validation
         self.is_eval_set = is_eval_set
         self.allowed_views = cfg_data.allowed_views
         self.data_in_mem = cfg_data.data_in_mem
@@ -144,6 +145,7 @@ class MultiStreamDataset(torch.utils.data.Dataset):
                         img, flow = self.generate_dummy_data()
                         data_list.append(img)
                         data_list.append(flow)
+
         if not self.only_use_complete:
             # Replace dummy views with real views.
             dummy_indexes = []
@@ -243,11 +245,17 @@ class MultiStreamDataset(torch.utils.data.Dataset):
         unique_exams = self.targets.drop_duplicates('us_id')['us_id'].copy()
         view_arr = []
         for row in unique_exams:
-            view_arr.append(all(elem in self.targets[self.targets['us_id'] == row]['view'].values for elem in self.allowed_views))
+            # Only include exams which contain 4-chamber view
+            if self.is_eval_set and self.minimum_validation:
+                view_arr.append(all(elem in self.targets[self.targets['us_id'] == row]['view'].values for elem in [4]))
+            else:
+                view_arr.append(all(elem in self.targets[self.targets['us_id'] == row]['view'].values for elem in self.allowed_views))
         filtered_ue = unique_exams[view_arr].copy()
         filtered_targets = self.targets[self.targets['us_id'].isin(filtered_ue)].copy().reset_index(drop=True)
         self.targets = filtered_targets
         self.unique_exams = self.targets.drop_duplicates('us_id')[['us_id', 'target']]
+        if self.is_eval_set and self.minimum_validation:
+            print("Unique validation exams:", len(self.unique_exams))
 
     def combinate(self, items, size=4):
         '''

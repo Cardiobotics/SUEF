@@ -449,10 +449,10 @@ def create_data_sets(cfg):
     else:
         dataset_c = NPYDataset
     # Create DataLoaders for training and validation
-    train_d_set = dataset_c(cfg.data, cfg.transforms.train_t, cfg.augmentations.train_a, cfg.data.train_targets, is_eval_set=False)
+    train_d_set = dataset_c(cfg.data, cfg.transforms.train_t, cfg.augmentations.train_a, cfg.data.train_targets, is_eval_set=False, minimum_validation=False)
     print("Training dataset size: {}".format(len(train_d_set)))
 
-    val_d_set = dataset_c(cfg.data, cfg.transforms.eval_t, cfg.augmentations.eval_a, cfg.data.val_targets, is_eval_set=True)
+    val_d_set = dataset_c(cfg.data, cfg.transforms.eval_t, cfg.augmentations.eval_a, cfg.data.val_targets, is_eval_set=True, minimum_validation=cfg.data.minimum_val)
     print("Validation dataset size: {}".format(len(val_d_set)))
 
     return train_d_set, val_d_set
@@ -528,7 +528,6 @@ def update_val_results(results, **kwargs):
         results[k] = v
 
 def convert_classes_to_EF(classes):
-    assert classes >= 0 and classes <= 10
     if classes == 0:
         return 20
     elif classes == 1:
@@ -553,7 +552,6 @@ def convert_classes_to_EF(classes):
         return 70
 
 def convert_EF_to_classes(ef):
-    assert ef >= 0 and ef <= 100
     if ef <= 20:
         return 0
     elif ef > 20 and ef <= 25:
@@ -578,7 +576,6 @@ def convert_EF_to_classes(ef):
         return 10
 
 def convert_EF_to_integer(ef):
-    assert ef >= 0 and ef <= 100
     if ef <= 20:
         return 20
     elif ef > 20 and ef <= 25:
