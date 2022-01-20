@@ -217,13 +217,23 @@ def create_and_load_model(cfg):
             tags.append('TVL1')
             if cfg.model.shared_weights:
                 tags.append('shared-weights')
-                model_img = i3d_bert.Inception3D_Maxpool(cfg.model.pre_trained_checkpoint_img, cfg.model.n_classes,
-                                                         cfg.model.n_input_channels_img, cfg.model.pre_n_classes,
-                                                         cfg.model.pre_n_input_channels_img)
-                model_flow = i3d_bert.Inception3D_Maxpool(cfg.model.pre_trained_checkpoint_flow, cfg.model.n_classes,
-                                                         cfg.model.n_input_channels_flow, cfg.model.pre_n_classes,
-                                                         cfg.model.pre_n_input_channels_flow)
-                model = multi_stream.MultiStreamShared(model_img, model_flow, len(cfg.data.allowed_views) * 2,
+                if cfg.training.continue_training:
+                    state_dict = torch.load(cfg.model.best_model, map_location=map_location)['model']
+                    model_img, model_flow = create_two_stream_models(cfg, '', '' , bert=False)
+                    model = multi_stream.MultiStreamShared(model_img, model_flow, len(cfg.data.allowed_views) * 2,
+                                                           cfg.model.n_classes)
+                    img_state_dict = OrderedDict({k: state_dict[k] for k in state_dict.keys() if k.find('bert') == -1})
+                    model.load_state_dict(img_state_dict)
+                    model.replace_mixed_5c()
+                    model.replace_fc_submodels(1, inp_dim=1024)
+                else:
+                    model_img = i3d_bert.Inception3D_Maxpool(cfg.model.pre_trained_checkpoint_img, cfg.model.n_classes,
+                                                             cfg.model.n_input_channels_img, cfg.model.pre_n_classes,
+                                                             cfg.model.pre_n_input_channels_img)
+                    model_flow = i3d_bert.Inception3D_Maxpool(cfg.model.pre_trained_checkpoint_flow, cfg.model.n_classes,
+                                                             cfg.model.n_input_channels_flow, cfg.model.pre_n_classes,
+                                                             cfg.model.pre_n_input_channels_flow)
+                    model = multi_stream.MultiStreamShared(model_img, model_flow, len(cfg.data.allowed_views) * 2,
                                                        cfg.model.n_classes)
                 if cfg.optimizer.loss_function == 'all-threshold':
                     model.thresholds = torch.nn.Parameter(torch.tensor(range(10)).float(), requires_grad=True)
@@ -310,13 +320,10 @@ def create_and_load_model(cfg):
                 tags.append('TVL1')
                 if cfg.model.shared_weights:
                     tags.append('shared-weights')
-                    model_img, model_flow = create_two_stream_models(cfg, '', '' , bert=False)
+                    model_img, model_flow = create_two_stream_models(cfg, cfg.model.pre_trained_checkpoint_img,
+                                                                     cfg.model.pre_trained_checkpoint_flow)
                     model = multi_stream.MultiStreamShared(model_img, model_flow, len(cfg.data.allowed_views) * 2,
                                                            cfg.model.n_classes)
-                    img_state_dict = OrderedDict({k: state_dict[k] for k in state_dict.keys() if k.find('bert') == -1})
-                    model.load_state_dict(img_state_dict)
-                    model.replace_mixed_5c()
-                    model.replace_fc_submodels(1, inp_dim=1024)
                     if cfg.optimizer.loss_function == 'all-threshold':
                         model.thresholds = torch.nn.Parameter(torch.tensor(range(10)).float(), requires_grad=True)
                 else:
