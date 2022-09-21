@@ -5,6 +5,7 @@ from torch.utils.data import DataLoader, WeightedRandomSampler, RandomSampler, D
 from models import custom_cnn, resnext, i3d_bert, multi_stream
 from data.npy_dataset import NPYDataset
 from data.multi_stream_dataset import MultiStreamDataset, MultiStreamDatasetNoFlow
+from data.echonet_multi_stream_dataset import EchoMultiStreamDataset
 from loss_functions.ordinal_regression import OrdinalRegressionAT, get_ORAT_labels
 from omegaconf import OmegaConf
 from omegaconf.omegaconf import open_dict
@@ -460,6 +461,18 @@ def create_data_sets(cfg):
     print("Training dataset size: {}".format(len(train_d_set)))
 
     val_d_set = dataset_c(cfg.data, cfg.transforms.eval_t, cfg.augmentations.eval_a, cfg.data.val_targets, is_eval_set=True, minimum_validation=cfg.data.minimum_val)
+    print("Validation dataset size: {}".format(len(val_d_set)))
+
+    return train_d_set, val_d_set
+
+def create_echo_data_sets(cfg):
+    if cfg.data.type == 'multi-stream':
+        dataset_c = EchoMultiStreamDataset
+    # Create DataLoaders for training and validation
+    train_d_set = dataset_c(cfg.data, cfg.transforms.train_t, cfg.augmentations.train_a, cfg.data.train_targets, is_eval_set=False)
+    print("Training dataset size: {}".format(len(train_d_set)))
+
+    val_d_set = dataset_c(cfg.data, cfg.transforms.eval_t, cfg.augmentations.eval_a, cfg.data.train_targets, is_eval_set=True)
     print("Validation dataset size: {}".format(len(val_d_set)))
 
     return train_d_set, val_d_set
