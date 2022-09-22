@@ -9,6 +9,8 @@ from torch.cuda.amp import autocast
 import tqdm
 from run_echonet import run_epoch
 import neptune.new as neptune
+os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"   
+os.environ["CUDA_VISIBLE_DEVICES"]= "7"
 
 def main():
     """
@@ -26,13 +28,13 @@ def main():
     num_workers=20
     batch_size=20
     device="cuda"
-    path_to_model_weights="echonet_pretrained_model/"
+    path_to_model_weights="/proj/suef_data/echonet_pretrained_weights/"
     num_epochs=45
     lr=1e-4
     weight_decay=1e-4
     lr_step_period=15
     pad=12
-    model_save_dir = "saved_models/"
+    model_save_dir = "/proj/suef_data/saved_models/echonet/"
     if not os.path.exists(model_save_dir):
         os.makedirs(model_save_dir)
     
@@ -99,9 +101,10 @@ def main():
             log_val_metrics(run, v_mse_loss, v_r2_score)
             scheduler.step(v_mse_loss)
             if v_mse_loss < best_val_loss:
+                checkpoint_name = model_save_dir + model_name + '_ep_' + str(epoch) + '_exp_' + experiment_name
                 best_val_loss = v_mse_loss
-                torch.save(model.state_dict(), os.path.join(model_save_dir, model_name, '_ep_', str(epoch), '.pth'))
-                torch.save(optimizer.state_dict(), os.path.join(model_save_dir, 'opt_' , '_ep_', str(epoch), '.pth'))
+                torch.save(model.state_dict(), checkpoint_name + '.pth')
+                torch.save(optimizer.state_dict(), checkpoint_name + '_op_.pth')
     
 def log_train_metrics(experiment, t_loss, t_r2):
     experiment['train/loss'].log(t_loss)

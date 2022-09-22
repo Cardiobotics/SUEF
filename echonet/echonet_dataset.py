@@ -45,15 +45,12 @@ class Echo(torchvision.datasets.VisionDataset):
         #if root is None:
 
         super().__init__(root, target_transform=target_transform)
-        data_splits_paths = {'train': "4_view_SUEF_train_data/",
-                             'val': "4_view_SUEF_val_data/",
-                             'test': "4_view_SUEF_test_data/"
-                            }
         data_dir_paths = {'train': "train_data_npy_images/",
                              'val': "val_data_npy_images/",
                              'test': "test_data_npy_images/"
                             }
-        self.root = "/media/LargeHDD/SUEF/" + data_splits_paths[split]
+        self.root = "/proj/suef_data/suef_4_view_data/" + data_dir_paths[split]
+        self.meta_fp = "/proj/suef_data/suef_4_view_csvs/"
         self.data_dir = data_dir_paths[split]
         self.split = split.upper()
         self.target_type = target_type
@@ -71,7 +68,7 @@ class Echo(torchvision.datasets.VisionDataset):
         self.target_height = 112
 
         # Read csv-file with img filepaths and EF-targets
-        with open(os.path.join(self.root, self.meta_fp)) as f:
+        with open(os.path.join(self.meta_fp, self.meta_fp)) as f:
             data = pandas.read_csv(f)
             # data_list contains tuples of img filename and EF target
             self.data_list = data[["img_filepath", "target"]].to_numpy()
